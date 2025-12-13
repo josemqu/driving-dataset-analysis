@@ -266,9 +266,9 @@ function setGpsTrackOnMap(lat, lon) {
   if (points.length === 0) return;
 
   gpsPolyline = L.polyline(points, {
-    color: "#6ea8fe",
-    weight: 3,
-    opacity: 0.85,
+    color: "#22d3ee",
+    weight: 4,
+    opacity: 0.95,
   }).addTo(map);
   const icon = L.divIcon({
     className: "vehicleMarker",
