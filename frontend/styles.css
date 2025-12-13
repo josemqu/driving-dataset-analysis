@@ -1,0 +1,175 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: #0b1020;
+  color: #e6e8ef;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.95;
+  white-space: nowrap;
+}
+
+select,
+input,
+button {
+  background: #111936;
+  color: #e6e8ef;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+  padding: 12px;
+}
+
+.left,
+.right {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.right {
+  padding: 10px;
+}
+
+.plots {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 6px;
+}
+
+.plot {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.plotHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.plotTitle {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.plotSub {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.plotCanvasWrap {
+  height: 180px;
+}
+
+.plot canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.video {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  background: #000;
+}
+
+.map {
+  width: 100%;
+  height: 260px;
+  margin-top: 10px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.vehicleMarker {
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.65));
+}
+
+.vehicleMarker svg {
+  display: block;
+}
+
+.meta {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.85;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 1100px) {
+  .main {
+    grid-template-columns: 1fr;
+  }
+}
