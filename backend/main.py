@@ -23,7 +23,7 @@ FRONTEND_DIR = APP_ROOT / "frontend"
 DATASET_ROOT = Path(
     os.environ.get(
         "UAH_DATASET_ROOT",
-        str((APP_ROOT.parent / "UAH-DRIVESET-v1").resolve()),
+        str((APP_ROOT / "data").resolve()),
     )
 )
 
