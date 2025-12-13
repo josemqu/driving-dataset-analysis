@@ -10,6 +10,58 @@ let state = {
 
 const STORAGE_KEY = "uah_driveset_web_viewer_state_v1";
 
+const PANELS_ORDER_KEY = "panelsOrder";
+
+function getPersistedPanelsOrder() {
+  const persisted = loadPersistedState();
+  const order = persisted?.[PANELS_ORDER_KEY];
+  if (!Array.isArray(order)) return null;
+  return order.filter((k) => typeof k === "string" && k.length > 0);
+}
+
+function persistPanelsOrder(keys) {
+  if (!Array.isArray(keys)) return;
+  const unique = [];
+  const seen = new Set();
+  for (const k of keys) {
+    if (typeof k !== "string" || !k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push(k);
+  }
+  savePersistedState({ [PANELS_ORDER_KEY]: unique });
+}
+
+function orderPanelSpecs(specs, persistedOrder) {
+  if (!Array.isArray(specs) || specs.length === 0) return specs;
+  if (!Array.isArray(persistedOrder) || persistedOrder.length === 0)
+    return specs;
+
+  const byKey = new Map();
+  for (const s of specs) {
+    if (!s || typeof s.key !== "string") continue;
+    byKey.set(s.key, s);
+  }
+
+  const out = [];
+  const used = new Set();
+  for (const k of persistedOrder) {
+    const s = byKey.get(k);
+    if (!s || used.has(k)) continue;
+    used.add(k);
+    out.push(s);
+  }
+
+  for (const s of specs) {
+    if (!s || typeof s.key !== "string") continue;
+    if (used.has(s.key)) continue;
+    used.add(s.key);
+    out.push(s);
+  }
+
+  return out;
+}
+
 function loadPersistedState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -432,6 +484,8 @@ function buildPanels(specs) {
   state.panels = specs.map((spec) => {
     const card = document.createElement("div");
     card.className = "plot";
+    card.dataset.panelKey = spec.key;
+    card.draggable = true;
 
     const header = document.createElement("div");
     header.className = "plotHeader";
@@ -460,6 +514,121 @@ function buildPanels(specs) {
     const chart = makeChart(canvas, spec.title);
     return { spec, chart, t: [], v: [] };
   });
+
+  attachPlotsDnD();
+}
+
+function attachPlotsDnD() {
+  const container = els.plots;
+  if (!container) return;
+
+  const cards = Array.from(container.querySelectorAll(".plot"));
+  if (cards.length === 0) return;
+
+  const canUseDnD = "draggable" in document.createElement("div");
+  if (!canUseDnD) return;
+
+  let draggingKey = null;
+
+  const indexForKey = (key) => {
+    const children = Array.from(container.querySelectorAll(".plot"));
+    return children.findIndex((el) => el.dataset.panelKey === key);
+  };
+
+  const persistCurrentDomOrder = () => {
+    const keys = Array.from(container.querySelectorAll(".plot"))
+      .map((el) => el.dataset.panelKey)
+      .filter(Boolean);
+    persistPanelsOrder(keys);
+  };
+
+  const clearDragOver = () => {
+    container
+      .querySelectorAll(".plot.dragOver")
+      .forEach((el) => el.classList.remove("dragOver"));
+  };
+
+  for (const card of cards) {
+    card.addEventListener("dragstart", (e) => {
+      draggingKey = card.dataset.panelKey || null;
+      card.classList.add("dragging");
+      try {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", draggingKey || "");
+      } catch {
+        // ignore
+      }
+    });
+
+    card.addEventListener("dragend", () => {
+      draggingKey = null;
+      card.classList.remove("dragging");
+      clearDragOver();
+      persistCurrentDomOrder();
+    });
+
+    card.addEventListener("dragover", (e) => {
+      if (!draggingKey) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (!card.classList.contains("dragOver")) {
+        clearDragOver();
+        card.classList.add("dragOver");
+      }
+    });
+
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("dragOver");
+    });
+
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const srcKey = draggingKey;
+      const dstKey = card.dataset.panelKey || null;
+      if (!srcKey || !dstKey || srcKey === dstKey) return;
+
+      const srcEl = container.querySelector(
+        `.plot[data-panel-key="${CSS.escape(srcKey)}"]`
+      );
+      const dstEl = container.querySelector(
+        `.plot[data-panel-key="${CSS.escape(dstKey)}"]`
+      );
+      if (!srcEl || !dstEl) return;
+
+      const srcIndex = indexForKey(srcKey);
+      const dstIndex = indexForKey(dstKey);
+      if (srcIndex < 0 || dstIndex < 0) return;
+
+      // Insert src before/after dst based on relative position.
+      if (srcIndex < dstIndex) {
+        container.insertBefore(srcEl, dstEl.nextSibling);
+      } else {
+        container.insertBefore(srcEl, dstEl);
+      }
+
+      // Keep state.panels aligned with DOM order so updates stay correct.
+      const order = Array.from(container.querySelectorAll(".plot"))
+        .map((el) => el.dataset.panelKey)
+        .filter(Boolean);
+      const byKey = new Map(state.panels.map((p) => [p.spec.key, p]));
+      const nextPanels = [];
+      for (const k of order) {
+        const p = byKey.get(k);
+        if (p) nextPanels.push(p);
+      }
+      // In case any panel wasn't in DOM order (shouldn't happen), keep them at the end.
+      for (const p of state.panels) {
+        const k = p?.spec?.key;
+        if (!k) continue;
+        if (order.includes(k)) continue;
+        nextPanels.push(p);
+      }
+      state.panels = nextPanels;
+
+      clearDragOver();
+      persistPanelsOrder(order);
+    });
+  }
 }
 
 async function loadTrips() {
@@ -507,7 +676,11 @@ async function loadTripData() {
 
   els.video.src = `/api/trips/${encodeURIComponent(tripId)}/video`;
 
-  const specs = defaultPanelSpecs();
+  const defaultSpecs = defaultPanelSpecs();
+  const persistedOrder = getPersistedPanelsOrder();
+  const specs = orderPanelSpecs(defaultSpecs, persistedOrder);
+  // If there's no persisted order yet, store the current default order.
+  if (!persistedOrder) persistPanelsOrder(defaultSpecs.map((s) => s.key));
   buildPanels(specs);
 
   // Load each panel data
