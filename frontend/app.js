@@ -385,6 +385,29 @@ function interpolatedY(tArr, vArr, t) {
   return lerp(v0, v1, clamp(alpha, 0, 1));
 }
 
+function windowMinMax(tArr, vArr, tMin, tMax) {
+  if (!tArr || tArr.length === 0) return null;
+  const [a] = findBracket(tArr, tMin);
+  const [, b] = findBracket(tArr, tMax);
+  if (a < 0 || b < 0) return null;
+  const i0 = Math.min(a, b);
+  const i1 = Math.max(a, b);
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = i0; i <= i1; i++) {
+    const y = vArr[i];
+    if (!Number.isFinite(y)) continue;
+    if (y < min) min = y;
+    if (y > max) max = y;
+  }
+  if (min === Infinity || max === -Infinity) return null;
+  if (min === max) {
+    const pad = Math.max(1e-6, Math.abs(min) * 0.01);
+    return { min: min - pad, max: max + pad };
+  }
+  return { min, max };
+}
+
 function makeChart(canvasEl, label) {
   const tickLabel = (value) => {
     const n = Number(value);
@@ -820,6 +843,30 @@ function updateCursor() {
     p.chart.data.datasets[1].data = [{ x: tData, y }];
     p.chart.options.scales.x.min = tData - w / 2;
     p.chart.options.scales.x.max = tData + w / 2;
+
+    const mm = windowMinMax(p.t, p.v, tData - w / 2, tData + w / 2);
+    if (mm) {
+      const range = mm.max - mm.min;
+      const pad = range * 0.08;
+      const targetMin = mm.min - pad;
+      const targetMax = mm.max + pad;
+      const alpha = 0.18;
+      p.yMinSmooth =
+        typeof p.yMinSmooth === "number"
+          ? lerp(p.yMinSmooth, targetMin, alpha)
+          : targetMin;
+      p.yMaxSmooth =
+        typeof p.yMaxSmooth === "number"
+          ? lerp(p.yMaxSmooth, targetMax, alpha)
+          : targetMax;
+      if (Number.isFinite(p.yMinSmooth) && Number.isFinite(p.yMaxSmooth)) {
+        const eps = 1e-6;
+        const ymin = Math.min(p.yMinSmooth, p.yMaxSmooth - eps);
+        const ymax = Math.max(p.yMaxSmooth, p.yMinSmooth + eps);
+        p.chart.options.scales.y.min = ymin;
+        p.chart.options.scales.y.max = ymax;
+      }
+    }
     p.chart.update("none");
   }
 
