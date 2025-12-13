@@ -225,6 +225,60 @@ let gpsMarker = null;
 let lastMapCenterMs = 0;
 const VEHICLE_FOLLOW_ZOOM = 15;
 
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function mixHex(a, b, t) {
+  const parse = (hex) => {
+    const h = String(hex).replace("#", "");
+    const n = parseInt(h, 16);
+    return {
+      r: (n >> 16) & 255,
+      g: (n >> 8) & 255,
+      b: n & 255,
+    };
+  };
+  const toHex = ({ r, g, b }) => {
+    const n = ((r & 255) << 16) | ((g & 255) << 8) | (b & 255);
+    return `#${n.toString(16).padStart(6, "0")}`;
+  };
+  const c0 = parse(a);
+  const c1 = parse(b);
+  const tt = clamp01(t);
+  return toHex({
+    r: Math.round(lerp(c0.r, c1.r, tt)),
+    g: Math.round(lerp(c0.g, c1.g, tt)),
+    b: Math.round(lerp(c0.b, c1.b, tt)),
+  });
+}
+
+function colorForSpeedKmh(speedKmh) {
+  const s = Number(speedKmh);
+  const s0 = 0;
+  const s1 = 120;
+  const t = clamp01((s - s0) / (s1 - s0));
+  if (t <= 0.25) return mixHex("#2563eb", "#22d3ee", t / 0.25);
+  if (t <= 0.5) return mixHex("#22d3ee", "#22c55e", (t - 0.25) / 0.25);
+  if (t <= 0.75) return mixHex("#22c55e", "#fbbf24", (t - 0.5) / 0.25);
+  return mixHex("#fbbf24", "#ef4444", (t - 0.75) / 0.25);
+}
+
 function ensureMap() {
   if (leafletMap) return leafletMap;
   if (!window.L || !els.map) return null;
@@ -243,7 +297,7 @@ function ensureMap() {
   return leafletMap;
 }
 
-function setGpsTrackOnMap(lat, lon) {
+function setGpsTrackOnMap(t, lat, lon) {
   const map = ensureMap();
   if (!map) return;
 
@@ -257,19 +311,41 @@ function setGpsTrackOnMap(lat, lon) {
   }
 
   const points = [];
+  const ts = Array.isArray(t) ? t : [];
   for (let i = 0; i < lat.length; i++) {
     const la = lat[i];
     const lo = lon[i];
+    const ti = ts[i];
     if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
-    points.push([la, lo]);
+    if (!Number.isFinite(ti)) continue;
+    points.push({ la, lo, ti });
   }
   if (points.length === 0) return;
 
-  gpsPolyline = L.polyline(points, {
-    color: "#22d3ee",
-    weight: 4,
-    opacity: 0.95,
-  }).addTo(map);
+  const segs = [];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const dt = b.ti - a.ti;
+    if (!Number.isFinite(dt) || dt <= 0) continue;
+    const d = haversineMeters(a.la, a.lo, b.la, b.lo);
+    if (!Number.isFinite(d) || d <= 0) continue;
+    const vKmh = (d / dt) * 3.6;
+    segs.push(
+      L.polyline(
+        [
+          [a.la, a.lo],
+          [b.la, b.lo],
+        ],
+        {
+          color: colorForSpeedKmh(vKmh),
+          weight: 6,
+          opacity: 0.95,
+        }
+      )
+    );
+  }
+  gpsPolyline = L.featureGroup(segs).addTo(map);
   const icon = L.divIcon({
     className: "vehicleMarker",
     iconSize: [28, 28],
@@ -284,11 +360,13 @@ function setGpsTrackOnMap(lat, lon) {
       </svg>
     `,
   });
-  gpsMarker = L.marker(points[0], { icon }).addTo(map);
+  gpsMarker = L.marker([points[0].la, points[0].lo], { icon }).addTo(map);
 
   // Start with a route overview, then jump to a closer follow zoom.
   map.fitBounds(gpsPolyline.getBounds(), { padding: [10, 10] });
-  map.setView(points[0], VEHICLE_FOLLOW_ZOOM, { animate: false });
+  map.setView([points[0].la, points[0].lo], VEHICLE_FOLLOW_ZOOM, {
+    animate: false,
+  });
 }
 
 function updateGpsMarker(tData) {
@@ -634,6 +712,12 @@ function defaultPanelSpecs() {
       kind: "series",
       file: "RAW_GPS",
       col: 1,
+    },
+    {
+      key: "gps_speed_calc",
+      title: "GPS Speed",
+      subtitle: "Speed (Km/h)",
+      kind: "computed",
     }
   );
 
@@ -858,6 +942,17 @@ async function loadTripData() {
   // Load each panel data
   let offsetSeconds = 0;
   for (const p of state.panels) {
+    if (p.spec.kind === "computed") {
+      p.t = [];
+      p.v = [];
+      p.yMinSmooth = undefined;
+      p.yMaxSmooth = undefined;
+      p.chart.data.datasets[0].label = p.spec.title;
+      p.chart.data.datasets[0].data = [];
+      p.chart.data.datasets[1].data = [];
+      p.chart.update();
+      continue;
+    }
     if (p.spec.kind === "accelerometers") {
       const url = `/api/trips/${encodeURIComponent(
         tripId
@@ -912,7 +1007,53 @@ async function loadTripData() {
         lat: gpsJson.lat || [],
         lon: gpsJson.lon || [],
       };
-      setGpsTrackOnMap(state.gps.lat, state.gps.lon);
+      setGpsTrackOnMap(state.gps.t, state.gps.lat, state.gps.lon);
+
+      const speedPanel = state.panels.find(
+        (p) => p?.spec?.kind === "computed" && p?.spec?.key === "gps_speed_calc"
+      );
+      if (speedPanel && state.gps.t.length > 1) {
+        const tArr = state.gps.t;
+        const latArr = state.gps.lat;
+        const lonArr = state.gps.lon;
+        const outT = [];
+        const outV = [];
+        for (let i = 1; i < tArr.length; i++) {
+          const t0 = tArr[i - 1];
+          const t1 = tArr[i];
+          const la0 = latArr[i - 1];
+          const lo0 = lonArr[i - 1];
+          const la1 = latArr[i];
+          const lo1 = lonArr[i];
+          if (
+            !Number.isFinite(t0) ||
+            !Number.isFinite(t1) ||
+            !Number.isFinite(la0) ||
+            !Number.isFinite(lo0) ||
+            !Number.isFinite(la1) ||
+            !Number.isFinite(lo1)
+          )
+            continue;
+          const dt = t1 - t0;
+          if (!Number.isFinite(dt) || dt <= 0) continue;
+          const d = haversineMeters(la0, lo0, la1, lo1);
+          if (!Number.isFinite(d) || d < 0) continue;
+          const vKmh = (d / dt) * 3.6;
+          outT.push(t1);
+          outV.push(vKmh);
+        }
+
+        speedPanel.t = outT;
+        speedPanel.v = outV;
+        speedPanel.yMinSmooth = undefined;
+        speedPanel.yMaxSmooth = undefined;
+        speedPanel.chart.data.datasets[0].label = speedPanel.spec.title;
+        speedPanel.chart.data.datasets[0].data = outT.map((t, i) => ({
+          x: t,
+          y: outV[i],
+        }));
+        speedPanel.chart.update();
+      }
     }
   } catch {
     // ignore map failures
@@ -989,6 +1130,12 @@ function updateCursor() {
         // Proximity/distance can't be negative; keep baseline at 0.
         targetMin = 0;
         // Ensure a non-zero range so the chart doesn't collapse when values are flat.
+        if (!Number.isFinite(targetMax) || targetMax <= 0) targetMax = 1;
+      }
+
+      if (p.spec.key === "gps_speed_calc") {
+        // Speed can't be negative; keep baseline at 0.
+        targetMin = 0;
         if (!Number.isFinite(targetMax) || targetMax <= 0) targetMax = 1;
       }
       const alpha = 0.18;
