@@ -130,6 +130,76 @@ const els = {
   map: document.getElementById("map"),
 };
 
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function truncateMiddle(s, maxLen) {
+  const str = String(s);
+  if (!Number.isFinite(maxLen) || maxLen <= 0) return str;
+  if (str.length <= maxLen) return str;
+  const head = Math.max(1, Math.floor((maxLen - 1) * 0.55));
+  const tail = Math.max(1, maxLen - 1 - head);
+  return `${str.slice(0, head)}…${str.slice(str.length - tail)}`;
+}
+
+function renderMetaPanel({ tripId, folderPath, videoPath, offsetSeconds }) {
+  const items = [
+    { label: "Trip", value: tripId ?? "" },
+    { label: "Folder", value: folderPath ?? "" },
+    { label: "Video", value: videoPath ?? "(not found)" },
+    {
+      label: "OffsetSeconds (dataStart - videoStart)",
+      value: Number.isFinite(offsetSeconds)
+        ? offsetSeconds.toFixed(3)
+        : String(offsetSeconds ?? ""),
+    },
+  ];
+
+  els.meta.innerHTML = `
+    <div class="metaPanel">
+      <div class="metaTitle">Trip info</div>
+      <div class="metaGrid">
+        ${items
+          .map((it) => {
+            const raw = String(it.value ?? "");
+            const short = truncateMiddle(raw, 90);
+            const safeShort = escapeHtml(short);
+            const safeRaw = escapeHtml(raw);
+            const safeLabel = escapeHtml(it.label);
+            return `
+              <div class="metaRow">
+                <div class="metaLabel">${safeLabel}</div>
+                <div class="metaValue" title="${safeRaw}"><code>${safeShort}</code></div>
+                <button class="metaCopy" type="button" data-copy="${safeRaw}" aria-label="Copy ${safeLabel}" title="Copy">Copy</button>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+      <div class="metaRule">
+        <div class="metaRuleTitle">Sync rule</div>
+        <code>t_data = video.currentTime - offsetSeconds</code>
+      </div>
+    </div>
+  `;
+}
+
+function renderMetaError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  els.meta.innerHTML = `
+    <div class="metaPanel metaPanelError">
+      <div class="metaTitle">Error</div>
+      <div class="metaErrorText"><code>${escapeHtml(msg)}</code></div>
+    </div>
+  `;
+}
+
 function setVideoOverlayVisible(visible) {
   if (!els.videoOverlay) return;
   els.videoOverlay.classList.toggle("isHidden", !visible);
@@ -415,6 +485,13 @@ function makeChart(canvasEl, label) {
     return n.toFixed(2);
   };
 
+  const xTickLabel = function (value, index, ticks) {
+    // When the window is tight, the min tick on X can overlap with other labels.
+    // Hide the first tick label (usually the min).
+    if (index === 0) return "";
+    return tickLabel(value);
+  };
+
   const monoFont = {
     family:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
@@ -448,30 +525,62 @@ function makeChart(canvasEl, label) {
       maintainAspectRatio: false,
       animation: false,
       parsing: false,
+      layout: {
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+      },
       scales: {
         x: {
           type: "linear",
-          title: { display: true, text: "t (s)" },
-          grid: { color: "rgba(255,255,255,0.06)" },
+          title: { display: false },
+          grid: {
+            color: "rgba(255,255,255,0.06)",
+            tickColor: "rgba(255,255,255,0.05)",
+            tickLength: 0,
+            drawTicks: false,
+          },
+          border: { color: "rgba(255,255,255,0.18)" },
           ticks: {
             color: "rgba(255,255,255,0.8)",
-            callback: tickLabel,
+            callback: xTickLabel,
             font: monoFont,
+            padding: 2,
+            maxTicksLimit: 6,
+            autoSkip: true,
+            maxRotation: 0,
+            minRotation: 0,
           },
         },
         y: {
-          title: { display: true, text: "value" },
-          grid: { color: "rgba(255,255,255,0.06)" },
+          title: { display: false },
+          grid: {
+            color: "rgba(255,255,255,0.06)",
+            tickColor: "rgba(255,255,255,0.05)",
+            tickLength: 0,
+            drawTicks: false,
+          },
+          border: { color: "rgba(255,255,255,0.18)" },
           ticks: {
             color: "rgba(255,255,255,0.8)",
             callback: tickLabel,
             font: monoFont,
+            padding: 2,
+            maxTicksLimit: 5,
           },
         },
       },
       plugins: {
-        legend: { labels: { color: "rgba(255,255,255,0.85)" } },
-        tooltip: { enabled: true },
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          displayColors: false,
+          titleFont: monoFont,
+          bodyFont: monoFont,
+          padding: 8,
+        },
+      },
+      interaction: {
+        mode: "nearest",
+        intersect: false,
       },
     },
   });
@@ -557,6 +666,16 @@ function buildPanels(specs) {
     els.plots.appendChild(card);
 
     const chart = makeChart(canvas, spec.title);
+
+    if (spec.kind === "accelerometers") {
+      // Emphasize the zero line for accelerometer plots.
+      const normal = "rgba(255,255,255,0.06)";
+      const zero = "rgba(255,255,255,0.22)";
+      chart.options.scales.y.grid.color = (ctx) => {
+        const v = ctx?.tick?.value;
+        return v === 0 ? zero : normal;
+      };
+    }
     return { spec, chart, t: [], v: [] };
   });
 
@@ -711,6 +830,7 @@ async function loadTrips() {
 
 async function loadTripData() {
   const tripId = els.tripSelect.value;
+  if (!tripId) return;
   const trip = byId(tripId);
   if (!trip) return;
   state.currentTrip = trip;
@@ -819,15 +939,12 @@ async function loadTripData() {
     windowSeconds: state.windowSeconds,
   });
 
-  els.meta.textContent = [
-    `Trip: ${trip.id}`,
-    `Folder: ${trip.folderPath}`,
-    `Video: ${trip.videoPath ?? "(not found)"}`,
-    `OffsetSeconds (dataStart - videoStart): ${state.offsetSeconds.toFixed(3)}`,
-    "",
-    "Sync rule:",
-    "t_data = video.currentTime - offsetSeconds",
-  ].join("\n");
+  renderMetaPanel({
+    tripId: trip.id,
+    folderPath: trip.folderPath,
+    videoPath: trip.videoPath,
+    offsetSeconds: state.offsetSeconds,
+  });
 }
 
 function updateCursor() {
@@ -848,8 +965,25 @@ function updateCursor() {
     if (mm) {
       const range = mm.max - mm.min;
       const pad = range * 0.08;
-      const targetMin = mm.min - pad;
-      const targetMax = mm.max + pad;
+      let targetMin = mm.min - pad;
+      let targetMax = mm.max + pad;
+
+      if (p.spec.kind === "accelerometers") {
+        // Symmetric range around 0 makes accel plots easier to compare.
+        const maxAbs = Math.max(Math.abs(targetMin), Math.abs(targetMax));
+        targetMin = -maxAbs;
+        targetMax = maxAbs;
+      }
+
+      if (
+        p.spec.key === "veh_dist" ||
+        p.spec.file === "PROC_VEHICLE_DETECTION"
+      ) {
+        // Proximity/distance can't be negative; keep baseline at 0.
+        targetMin = 0;
+        // Ensure a non-zero range so the chart doesn't collapse when values are flat.
+        if (!Number.isFinite(targetMax) || targetMax <= 0) targetMax = 1;
+      }
       const alpha = 0.18;
       p.yMinSmooth =
         typeof p.yMinSmooth === "number"
@@ -930,16 +1064,16 @@ function attachEvents() {
     savePersistedState({ driver, videoTime: 0 });
     renderTripOptionsForDriver(driver, null);
     savePersistedState({ tripId: els.tripSelect.value, videoTime: 0 });
-    loadTripData().catch((e) => (els.meta.textContent = String(e)));
+    loadTripData().catch((e) => renderMetaError(e));
   });
 
   els.tripSelect.addEventListener("change", () => {
     savePersistedState({ tripId: els.tripSelect.value, videoTime: 0 });
-    loadTripData().catch((e) => (els.meta.textContent = String(e)));
+    loadTripData().catch((e) => renderMetaError(e));
   });
 
   els.reloadBtn.addEventListener("click", () => {
-    loadTripData().catch((e) => (els.meta.textContent = String(e)));
+    loadTripData().catch((e) => renderMetaError(e));
   });
 
   els.windowSeconds.addEventListener("change", () => {
@@ -954,6 +1088,22 @@ function attachEvents() {
 
   els.plots.addEventListener("scroll", () => {
     savePersistedState({ plotsScrollTop: els.plots.scrollTop });
+  });
+
+  els.meta.addEventListener("click", async (ev) => {
+    const btn = ev.target?.closest?.("button.metaCopy");
+    if (!btn) return;
+    const raw = btn.getAttribute("data-copy") ?? "";
+    try {
+      await navigator.clipboard.writeText(raw);
+      const prev = btn.textContent;
+      btn.textContent = "Copied";
+      window.setTimeout(() => {
+        btn.textContent = prev;
+      }, 900);
+    } catch {
+      // ignore clipboard failures
+    }
   });
 
   let lastVideoPersist = 0;
@@ -998,5 +1148,5 @@ async function main() {
 }
 
 main().catch((e) => {
-  els.meta.textContent = String(e);
+  renderMetaError(e);
 });
