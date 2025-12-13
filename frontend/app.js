@@ -312,6 +312,17 @@ function interpolatedY(tArr, vArr, t) {
 }
 
 function makeChart(canvasEl, label) {
+  const tickLabel = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value);
+    return n.toFixed(2);
+  };
+
+  const monoFont = {
+    family:
+      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+  };
+
   return new Chart(canvasEl, {
     type: "line",
     data: {
@@ -345,12 +356,20 @@ function makeChart(canvasEl, label) {
           type: "linear",
           title: { display: true, text: "t (s)" },
           grid: { color: "rgba(255,255,255,0.06)" },
-          ticks: { color: "rgba(255,255,255,0.8)" },
+          ticks: {
+            color: "rgba(255,255,255,0.8)",
+            callback: tickLabel,
+            font: monoFont,
+          },
         },
         y: {
           title: { display: true, text: "value" },
           grid: { color: "rgba(255,255,255,0.06)" },
-          ticks: { color: "rgba(255,255,255,0.8)" },
+          ticks: {
+            color: "rgba(255,255,255,0.8)",
+            callback: tickLabel,
+            font: monoFont,
+          },
         },
       },
       plugins: {
