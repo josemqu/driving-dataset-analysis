@@ -262,6 +262,18 @@ button:hover {
   display: block;
 }
 
+.leaflet-marker-icon.vehicleMarker {
+  transition: transform 220ms linear;
+  will-change: transform;
+}
+
+.vehicleMarker .vehRot {
+  transform-origin: center;
+  transform-box: fill-box;
+  transition: transform 160ms linear;
+  will-change: transform;
+}
+
 .meta {
   margin-top: 10px;
   font-size: 12px;

@@ -95,9 +95,9 @@ function rotateMarker(deg) {
   if (!el) return;
   const rot = el.querySelector?.(".vehRot");
   if (!rot) return;
-  // SVG rotation expects degrees clockwise. Our bearing is 0=N.
-  // The arrow points up (north) at 0 degrees.
-  rot.setAttribute("transform", `rotate(${deg.toFixed(1)})`);
+  // Smooth rotation using CSS transform (CSS handles transition).
+  // Our bearing is 0=N and the arrow points up at 0 degrees.
+  rot.style.transform = `rotate(${deg.toFixed(1)}deg)`;
 }
 
 function savePersistedState(patch) {
@@ -324,7 +324,14 @@ function updateGpsMarker(tData) {
     lastMapCenterMs = now;
     // Keep at least VEHICLE_FOLLOW_ZOOM unless user zoomed in even more.
     const z = Math.max(leafletMap.getZoom(), VEHICLE_FOLLOW_ZOOM);
-    leafletMap.setView([la, lo], z, { animate: true, duration: 0.25 });
+    if (leafletMap.getZoom() !== z) {
+      leafletMap.setZoom(z, { animate: true });
+    }
+    leafletMap.panTo([la, lo], {
+      animate: true,
+      duration: 0.35,
+      easeLinearity: 0.25,
+    });
   }
 }
 
