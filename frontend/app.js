@@ -223,7 +223,7 @@ let leafletMap = null;
 let gpsPolyline = null;
 let gpsMarker = null;
 let lastMapCenterMs = 0;
-const VEHICLE_FOLLOW_ZOOM = 16;
+const VEHICLE_FOLLOW_ZOOM = 15;
 
 function ensureMap() {
   if (leafletMap) return leafletMap;
