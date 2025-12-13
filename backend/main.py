@@ -12,6 +12,7 @@ from .trips import (
     TripIndex,
     build_trip_index,
     get_accelerometers,
+    get_events,
     get_gps_track,
     get_series,
 )
@@ -131,6 +132,21 @@ def get_trip_gps(
         "lat": gps.lat.tolist(),
         "lon": gps.lon.tolist(),
         "speed": gps.speed.tolist(),
+    }
+
+
+@app.get("/api/trips/{trip_id}/events")
+def get_trip_events(trip_id: str) -> dict:
+    idx = trip_index()
+    trip = idx.by_id.get(trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    events = get_events(trip)
+    return {
+        "tripId": trip.id,
+        "offsetSeconds": trip.offset_seconds,
+        "events": events,
     }
 
 

@@ -73,6 +73,48 @@ class GpsTrack:
     speed: np.ndarray
 
 
+def get_events(trip: Trip) -> list[dict]:
+    out: list[dict] = []
+
+    # UAH DriveSet event files are stored per-trip and start with EVENTS.
+    # Format is not strictly enforced here; we parse as:
+    # - ignore empty lines
+    # - ignore lines starting with '#'
+    # - first token: float timestamp (seconds since route start)
+    # - remaining tokens: label text
+    for p in sorted(trip.folder_path.glob("EVENTS*")):
+        if not p.is_file():
+            continue
+        try:
+            with p.open("r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    parts = s.split()
+                    if len(parts) == 0:
+                        continue
+                    try:
+                        t = float(parts[0])
+                    except ValueError:
+                        # Skip header/invalid rows
+                        continue
+                    label = " ".join(parts[1:]).strip()
+                    out.append(
+                        {
+                            "t": t,
+                            "label": label,
+                            "source": p.name,
+                        }
+                    )
+        except OSError:
+            # Ignore unreadable files
+            continue
+
+    out.sort(key=lambda e: e.get("t", 0.0))
+    return out
+
+
 _ALLOWED_SERIES_FILES: set[str] = {
     "RAW_ACCELEROMETERS",
     "RAW_GPS",

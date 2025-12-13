@@ -6,6 +6,7 @@ let state = {
   offsetSeconds: 0,
   panels: [],
   gps: null,
+  events: [],
 };
 
 const STORAGE_KEY = "uah_driveset_web_viewer_state_v1";
@@ -630,9 +631,89 @@ const odometerOverlayPlugin = {
   },
 };
 
+const eventsOverlayPlugin = {
+  id: "eventsOverlay",
+  afterDatasetsDraw(chart) {
+    const cfg = chart?.options?.plugins?.eventsOverlay;
+    if (!cfg || !cfg.enabled) return;
+    const ca = chart.chartArea;
+    if (!ca) return;
+    const ctx = chart.ctx;
+    if (!ctx) return;
+
+    const events = Array.isArray(cfg.events) ? cfg.events : [];
+    if (events.length === 0) return;
+
+    const xScale = chart.scales?.x;
+    if (!xScale) return;
+    const xMin = Number.isFinite(xScale.min) ? xScale.min : null;
+    const xMax = Number.isFinite(xScale.max) ? xScale.max : null;
+    if (xMin == null || xMax == null || xMax <= xMin) return;
+
+    const maxLabels = Number.isFinite(cfg.maxLabels) ? cfg.maxLabels : 12;
+    const labelLen = Number.isFinite(cfg.labelMaxLen) ? cfg.labelMaxLen : 28;
+
+    const within = [];
+    for (const e of events) {
+      const t = Number(e?.t);
+      if (!Number.isFinite(t)) continue;
+      if (t < xMin || t > xMax) continue;
+      within.push(e);
+    }
+    if (within.length === 0) return;
+
+    const step =
+      within.length > maxLabels ? Math.ceil(within.length / maxLabels) : 1;
+
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.strokeStyle = "rgba(251, 191, 36, 0.55)";
+    ctx.lineWidth = 1;
+
+    ctx.fillStyle = "rgba(251, 191, 36, 0.9)";
+    ctx.font =
+      '600 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+
+    for (let i = 0; i < within.length; i += step) {
+      const e = within[i];
+      const t = Number(e?.t);
+      const x = xScale.getPixelForValue(t);
+      if (!Number.isFinite(x)) continue;
+      if (x < ca.left - 1 || x > ca.right + 1) continue;
+
+      ctx.beginPath();
+      ctx.moveTo(x, ca.top);
+      ctx.lineTo(x, ca.bottom);
+      ctx.stroke();
+
+      const raw = String(e?.label ?? "");
+      const short =
+        raw.length > labelLen
+          ? `${raw.slice(0, Math.max(1, labelLen - 1))}…`
+          : raw;
+      const y = ca.top + 2;
+      const padX = 3;
+      const maxW = Math.max(10, ca.right - x - 6);
+
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      const w = Math.min(maxW, ctx.measureText(short).width + padX * 2);
+      ctx.fillRect(x + 2, y, w, 14);
+      ctx.restore();
+
+      ctx.fillText(short, x + 2 + padX, y + 1);
+    }
+
+    ctx.restore();
+  },
+};
+
 try {
   if (typeof Chart !== "undefined" && Chart?.register) {
     Chart.register(odometerOverlayPlugin);
+    Chart.register(eventsOverlayPlugin);
   }
 } catch {
   // ignore
@@ -730,6 +811,12 @@ function makeChart(canvasEl, label) {
       },
       plugins: {
         odometerOverlay: { enabled: false, max: 160 },
+        eventsOverlay: {
+          enabled: true,
+          events: [],
+          maxLabels: 12,
+          labelMaxLen: 28,
+        },
         legend: { display: false },
         tooltip: {
           enabled: true,
@@ -1068,6 +1155,24 @@ async function loadTripData() {
   }
 
   state.offsetSeconds = offsetSeconds;
+
+  state.events = [];
+  try {
+    const eventsUrl = `/api/trips/${encodeURIComponent(tripId)}/events`;
+    const eventsRes = await fetch(eventsUrl);
+    if (eventsRes.ok) {
+      const eventsJson = await eventsRes.json();
+      state.events = Array.isArray(eventsJson.events) ? eventsJson.events : [];
+    }
+  } catch {
+    state.events = [];
+  }
+
+  for (const p of state.panels) {
+    if (!p?.chart?.options?.plugins?.eventsOverlay) continue;
+    p.chart.options.plugins.eventsOverlay.events = state.events;
+    p.chart.update("none");
+  }
 
   // Load GPS track for the map
   state.gps = null;
