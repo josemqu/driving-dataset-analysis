@@ -150,11 +150,98 @@ button:hover {
   height: 100% !important;
 }
 
+.videoWrap {
+  position: relative;
+  width: 100%;
+}
+
+.videoWrap.isPlaying .videoOverlay {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.videoWrap.isPlaying:hover .videoOverlay {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+}
+
 .video {
   width: 100%;
   height: auto;
   border-radius: 10px;
   background: #000;
+}
+
+.videoOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.videoOverlayPlay {
+  pointer-events: auto;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  background: transparent;
+  border-radius: 999px;
+  opacity: 1;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.videoOverlayPlay::before {
+  content: "";
+  width: min(140px, 34%);
+  aspect-ratio: 1 / 1;
+  border-radius: 999px;
+  background: rgba(17, 25, 54, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.videoOverlayPlay::after {
+  content: "";
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 18px 0 18px 28px;
+  border-color: transparent transparent transparent rgba(255, 255, 255, 0.92);
+  transform: translateX(4px);
+}
+
+.videoOverlayPlay.isPause::after {
+  width: 10px;
+  height: 34px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.92);
+  transform: none;
+  border-radius: 2px;
+  box-shadow: 16px 0 0 rgba(255, 255, 255, 0.92);
+}
+
+.videoOverlayPlay:hover {
+  transform: scale(1.01);
+}
+
+.videoOverlayPlay:focus-visible {
+  outline: 2px solid rgba(110, 168, 254, 0.95);
+  outline-offset: 3px;
+}
+
+.videoOverlay.isHidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .map {

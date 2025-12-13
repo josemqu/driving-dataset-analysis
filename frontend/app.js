@@ -122,10 +122,32 @@ const els = {
   downsample: document.getElementById("downsample"),
   reloadBtn: document.getElementById("reloadBtn"),
   video: document.getElementById("video"),
+  videoOverlayPlay: document.getElementById("videoOverlayPlay"),
+  videoOverlay: document.getElementById("videoOverlay"),
+  videoWrap: document.getElementById("videoWrap"),
   meta: document.getElementById("meta"),
   plots: document.getElementById("plots"),
   map: document.getElementById("map"),
 };
+
+function setVideoOverlayVisible(visible) {
+  if (!els.videoOverlay) return;
+  els.videoOverlay.classList.toggle("isHidden", !visible);
+}
+
+function syncVideoOverlay() {
+  if (!els.video) return;
+  const isPlaying = !els.video.paused && !els.video.ended;
+  if (els.videoWrap) els.videoWrap.classList.toggle("isPlaying", isPlaying);
+
+  // When paused (and not ended), show the overlay. When playing, CSS will show it on hover.
+  const shouldShow = els.video.paused && !els.video.ended;
+  setVideoOverlayVisible(shouldShow);
+
+  // Swap icon: play when paused, pause when playing.
+  if (els.videoOverlayPlay)
+    els.videoOverlayPlay.classList.toggle("isPause", isPlaying);
+}
 
 let leafletMap = null;
 let gpsPolyline = null;
@@ -830,6 +852,32 @@ function stopSmoothLoop() {
 }
 
 function attachEvents() {
+  if (els.videoOverlayPlay && els.video) {
+    els.videoOverlayPlay.addEventListener("click", () => {
+      if (els.video.paused || els.video.ended) {
+        // Best effort: if play is blocked by autoplay policy, it will reject.
+        const p = els.video.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } else {
+        els.video.pause();
+      }
+
+      // Avoid keeping focus on the overlay button (can make hover-like behavior feel sticky).
+      try {
+        els.videoOverlayPlay.blur();
+      } catch {
+        // ignore
+      }
+    });
+
+    // Keep overlay state correct when user uses native controls.
+    els.video.addEventListener("play", syncVideoOverlay);
+    els.video.addEventListener("pause", syncVideoOverlay);
+    els.video.addEventListener("ended", syncVideoOverlay);
+    els.video.addEventListener("loadedmetadata", syncVideoOverlay);
+    els.video.addEventListener("emptied", syncVideoOverlay);
+  }
+
   els.driverSelect.addEventListener("change", () => {
     const driver = els.driverSelect.value;
     savePersistedState({ driver, videoTime: 0 });

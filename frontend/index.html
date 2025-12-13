@@ -58,7 +58,18 @@
 
       <main class="main">
         <section class="left">
-          <video id="video" class="video" controls playsinline></video>
+          <div class="videoWrap" id="videoWrap">
+            <video id="video" class="video" controls playsinline></video>
+            <div id="videoOverlay" class="videoOverlay" aria-hidden="true">
+              <button
+                id="videoOverlayPlay"
+                class="videoOverlayPlay"
+                type="button"
+                aria-label="Play/pause video"
+                title="Play/Pause"
+              ></button>
+            </div>
+          </div>
           <div id="map" class="map"></div>
           <div class="meta" id="meta"></div>
         </section>
