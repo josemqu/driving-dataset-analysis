@@ -563,6 +563,81 @@ function windowMinMax(tArr, vArr, tMin, tMax) {
   return { min, max };
 }
 
+const odometerOverlayPlugin = {
+  id: "odometerOverlay",
+  afterDatasetsDraw(chart) {
+    const cfg = chart?.options?.plugins?.odometerOverlay;
+    if (!cfg || !cfg.enabled) return;
+    const ca = chart.chartArea;
+    if (!ca) return;
+    const ctx = chart.ctx;
+    if (!ctx) return;
+
+    const max = Number.isFinite(cfg.max) ? cfg.max : 160;
+    const valueRaw = Number(chart.$odometerValue);
+    const value = Number.isFinite(valueRaw) ? Math.max(0, valueRaw) : 0;
+    const v = Math.min(max, value);
+    const t = max > 0 ? v / max : 0;
+
+    const radius = Math.max(34, Math.min(56, (ca.right - ca.left) * 0.18));
+    const cx = ca.right - radius - 10;
+    const cy = ca.top + radius + 40;
+    const a0 = Math.PI;
+    const a1 = 2 * Math.PI;
+    const ang = a0 + (a1 - a0) * t;
+
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, a0, a1);
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 6;
+    ctx.lineCap = "round";
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, a0, ang);
+    ctx.strokeStyle = "rgba(34, 211, 238, 0.95)";
+    ctx.lineWidth = 6;
+    ctx.lineCap = "round";
+    ctx.stroke();
+
+    const needleLen = radius * 0.72;
+    const nx = cx + Math.cos(ang) * needleLen;
+    const ny = cy + Math.sin(ang) * needleLen;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(nx, ny);
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.font =
+      '600 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${Math.round(value)} km/h`, cx, cy + 18);
+
+    ctx.restore();
+  },
+};
+
+try {
+  if (typeof Chart !== "undefined" && Chart?.register) {
+    Chart.register(odometerOverlayPlugin);
+  }
+} catch {
+  // ignore
+}
+
 function makeChart(canvasEl, label) {
   const tickLabel = (value) => {
     const n = Number(value);
@@ -654,6 +729,7 @@ function makeChart(canvasEl, label) {
         },
       },
       plugins: {
+        odometerOverlay: { enabled: false, max: 160 },
         legend: { display: false },
         tooltip: {
           enabled: true,
@@ -1052,6 +1128,8 @@ async function loadTripData() {
           x: t,
           y: outV[i],
         }));
+        speedPanel.chart.options.plugins.odometerOverlay.enabled = true;
+        speedPanel.chart.options.plugins.odometerOverlay.max = 160;
         speedPanel.chart.update();
       }
     }
@@ -1104,6 +1182,10 @@ function updateCursor() {
     if (!p.t || p.t.length === 0) continue;
     const y = interpolatedY(p.t, p.v, tData);
     if (y == null) continue;
+
+    if (p.spec.key === "gps_speed_calc" && p.chart) {
+      p.chart.$odometerValue = y;
+    }
     // Use exact tData for x so the cursor moves smoothly even if sampling is coarse.
     p.chart.data.datasets[1].data = [{ x: tData, y }];
     p.chart.options.scales.x.min = tData - w / 2;
