@@ -73,7 +73,7 @@ class GpsTrack:
     speed: np.ndarray
 
 
-def get_events(trip: Trip) -> list[dict]:
+def get_events(trip: Trip, *, file_prefix: str | None = None) -> list[dict]:
     out: list[dict] = []
 
     # UAH DriveSet event files are stored per-trip and start with EVENTS.
@@ -84,6 +84,8 @@ def get_events(trip: Trip) -> list[dict]:
     # - remaining tokens: label text
     for p in sorted(trip.folder_path.glob("EVENTS*")):
         if not p.is_file():
+            continue
+        if file_prefix and not p.name.startswith(file_prefix):
             continue
         try:
             with p.open("r", encoding="utf-8", errors="replace") as f:
@@ -99,12 +101,43 @@ def get_events(trip: Trip) -> list[dict]:
                     except ValueError:
                         # Skip header/invalid rows
                         continue
+
+                    direction = None
                     label = " ".join(parts[1:]).strip()
+                    extras: list[str] = []
+                    duration_seconds: float | None = None
+
+                    if (
+                        p.name.startswith("EVENTS_LIST_LANE_CHANGES")
+                        and len(parts) >= 2
+                    ):
+                        try:
+                            direction = int(float(parts[1]))
+                        except ValueError:
+                            direction = None
+                        extras = parts[2:]
+                        if len(parts) >= 4:
+                            try:
+                                duration_seconds = float(parts[3])
+                            except ValueError:
+                                duration_seconds = None
+                            if duration_seconds is not None and duration_seconds <= 0:
+                                duration_seconds = None
+                        if direction == 1:
+                            label = "Right"
+                        elif direction == -1:
+                            label = "Left"
+                        else:
+                            label = "LaneChange"
+
                     out.append(
                         {
                             "t": t,
                             "label": label,
                             "source": p.name,
+                            "direction": direction,
+                            "extras": extras,
+                            "durationSeconds": duration_seconds,
                         }
                     )
         except OSError:

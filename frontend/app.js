@@ -633,6 +633,59 @@ const odometerOverlayPlugin = {
 
 const eventsOverlayPlugin = {
   id: "eventsOverlay",
+  beforeDatasetsDraw(chart) {
+    const cfg = chart?.options?.plugins?.eventsOverlay;
+    if (!cfg || !cfg.enabled) return;
+    const ca = chart.chartArea;
+    if (!ca) return;
+    const ctx = chart.ctx;
+    if (!ctx) return;
+
+    const events = Array.isArray(cfg.events) ? cfg.events : [];
+    if (events.length === 0) return;
+
+    const xScale = chart.scales?.x;
+    if (!xScale) return;
+    const xMin = Number.isFinite(xScale.min) ? xScale.min : null;
+    const xMax = Number.isFinite(xScale.max) ? xScale.max : null;
+    if (xMin == null || xMax == null || xMax <= xMin) return;
+
+    ctx.save();
+    // Ensure ranges are rendered behind the plotted data.
+    ctx.globalCompositeOperation = "destination-over";
+
+    for (const e of events) {
+      const t = Number(e?.t);
+      if (!Number.isFinite(t)) continue;
+      if (t < xMin || t > xMax) continue;
+
+      const dur = Number(e?.durationSeconds);
+      if (!Number.isFinite(dur) || dur <= 0) continue;
+
+      const dir = Number(e?.direction);
+      const isRight = dir === 1;
+      const isLeft = dir === -1;
+      const rangeFill = isRight
+        ? "rgba(34, 197, 94, 0.16)"
+        : isLeft
+        ? "rgba(239, 68, 68, 0.16)"
+        : "rgba(251, 191, 36, 0.14)";
+
+      const x1 = xScale.getPixelForValue(t);
+      const x2 = xScale.getPixelForValue(t + dur);
+      if (!Number.isFinite(x1) || !Number.isFinite(x2)) continue;
+
+      const left = Math.max(ca.left, Math.min(x1, x2));
+      const right = Math.min(ca.right, Math.max(x1, x2));
+      const w = right - left;
+      if (w <= 1) continue;
+
+      ctx.fillStyle = rangeFill;
+      ctx.fillRect(left, ca.top, w, ca.bottom - ca.top);
+    }
+
+    ctx.restore();
+  },
   afterDatasetsDraw(chart) {
     const cfg = chart?.options?.plugins?.eventsOverlay;
     if (!cfg || !cfg.enabled) return;
@@ -667,10 +720,9 @@ const eventsOverlayPlugin = {
 
     ctx.save();
     ctx.globalAlpha = 0.95;
-    ctx.strokeStyle = "rgba(251, 191, 36, 0.55)";
     ctx.lineWidth = 1;
 
-    ctx.fillStyle = "rgba(251, 191, 36, 0.9)";
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
     ctx.font =
       '600 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
     ctx.textAlign = "left";
@@ -683,10 +735,27 @@ const eventsOverlayPlugin = {
       if (!Number.isFinite(x)) continue;
       if (x < ca.left - 1 || x > ca.right + 1) continue;
 
+      const dir = Number(e?.direction);
+      const isRight = dir === 1;
+      const isLeft = dir === -1;
+      const rangeFill = isRight
+        ? "rgba(34, 197, 94, 0.18)"
+        : isLeft
+        ? "rgba(239, 68, 68, 0.18)"
+        : "rgba(251, 191, 36, 0.16)";
+      const lineStroke = isRight
+        ? "rgba(34, 197, 94, 0.55)"
+        : isLeft
+        ? "rgba(239, 68, 68, 0.55)"
+        : "rgba(251, 191, 36, 0.55)";
+
+      ctx.save();
+      ctx.strokeStyle = lineStroke;
       ctx.beginPath();
       ctx.moveTo(x, ca.top);
       ctx.lineTo(x, ca.bottom);
       ctx.stroke();
+      ctx.restore();
 
       const raw = String(e?.label ?? "");
       const short =
@@ -1158,7 +1227,9 @@ async function loadTripData() {
 
   state.events = [];
   try {
-    const eventsUrl = `/api/trips/${encodeURIComponent(tripId)}/events`;
+    const eventsUrl = `/api/trips/${encodeURIComponent(
+      tripId
+    )}/events?filePrefix=${encodeURIComponent("EVENTS_LIST_LANE_CHANGES")}`;
     const eventsRes = await fetch(eventsUrl);
     if (eventsRes.ok) {
       const eventsJson = await eventsRes.json();

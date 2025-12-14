@@ -136,16 +136,20 @@ def get_trip_gps(
 
 
 @app.get("/api/trips/{trip_id}/events")
-def get_trip_events(trip_id: str) -> dict:
+def get_trip_events(
+    trip_id: str,
+    filePrefix: str = Query(default="EVENTS_LIST_LANE_CHANGES"),
+) -> dict:
     idx = trip_index()
     trip = idx.by_id.get(trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
 
-    events = get_events(trip)
+    events = get_events(trip, file_prefix=filePrefix or None)
     return {
         "tripId": trip.id,
         "offsetSeconds": trip.offset_seconds,
+        "filePrefix": filePrefix,
         "events": events,
     }
 
