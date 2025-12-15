@@ -6,6 +6,7 @@ let state = {
   offsetSeconds: 0,
   panels: [],
   gps: null,
+  gpsRaw: null,
   events: [],
 };
 
@@ -63,6 +64,148 @@ function orderPanelSpecs(specs, persistedOrder) {
   return out;
 }
 
+function kalman1DConstVelWithVel(t, z, sigmaA, sigmaZ) {
+  const n = Array.isArray(t) ? t.length : 0;
+  const pos = new Array(n);
+  const vel = new Array(n);
+  if (n === 0) return { pos, vel };
+
+  const sA = Math.max(0, Number(sigmaA));
+  const sZ = Math.max(0, Number(sigmaZ));
+  const q = sA * sA;
+  const r = sZ * sZ;
+
+  let x0 = Number(z[0]);
+  if (!Number.isFinite(x0)) x0 = 0;
+  let x1 = 0;
+  let p00 = 10;
+  let p01 = 0;
+  let p10 = 0;
+  let p11 = 10;
+
+  pos[0] = x0;
+  vel[0] = x1;
+  for (let i = 1; i < n; i++) {
+    const ti0 = Number(t[i - 1]);
+    const ti1 = Number(t[i]);
+    const dtRaw = ti1 - ti0;
+    const dt = Number.isFinite(dtRaw) && dtRaw > 0 ? dtRaw : 0;
+
+    const x0p = x0 + dt * x1;
+    const x1p = x1;
+
+    const fp00 = p00 + dt * (p10 + p01) + dt * dt * p11;
+    const fp01 = p01 + dt * p11;
+    const fp10 = p10 + dt * p11;
+    const fp11 = p11;
+
+    const dt2 = dt * dt;
+    const dt3 = dt2 * dt;
+    const dt4 = dt2 * dt2;
+    const q00 = 0.25 * dt4 * q;
+    const q01 = 0.5 * dt3 * q;
+    const q11 = dt2 * q;
+
+    let pp00 = fp00 + q00;
+    let pp01 = fp01 + q01;
+    let pp10 = fp10 + q01;
+    let pp11 = fp11 + q11;
+
+    const zi = Number(z[i]);
+    if (!Number.isFinite(zi) || dt === 0) {
+      x0 = x0p;
+      x1 = x1p;
+      p00 = pp00;
+      p01 = pp01;
+      p10 = pp10;
+      p11 = pp11;
+      pos[i] = x0;
+      vel[i] = x1;
+      continue;
+    }
+
+    const y = zi - x0p;
+    const s = pp00 + r;
+    const k0 = s !== 0 ? pp00 / s : 0;
+    const k1 = s !== 0 ? pp10 / s : 0;
+
+    x0 = x0p + k0 * y;
+    x1 = x1p + k1 * y;
+
+    const p00n = (1 - k0) * pp00;
+    const p01n = (1 - k0) * pp01;
+    const p10n = pp10 - k1 * pp00;
+    const p11n = pp11 - k1 * pp01;
+
+    p00 = p00n;
+    p01 = p01n;
+    p10 = p10n;
+    p11 = p11n;
+
+    pos[i] = x0;
+    vel[i] = x1;
+  }
+  return { pos, vel };
+}
+
+function kalmanGpsLocalMeters(t, lat, lon, sigmaA, sigmaZ) {
+  const n = Array.isArray(t) ? t.length : 0;
+  if (n === 0) return { t: [], lat: [], lon: [], speedKmh: [] };
+
+  const lat0 = Number(lat[0]);
+  const lon0 = Number(lon[0]);
+  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) {
+    return { t, lat: Array.from(lat), lon: Array.from(lon), speedKmh: [] };
+  }
+
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const phi0 = toRad(lat0);
+  const cos0 = Math.cos(phi0);
+
+  const x = new Array(n);
+  const y = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const la = Number(lat[i]);
+    const lo = Number(lon[i]);
+    if (!Number.isFinite(la) || !Number.isFinite(lo)) {
+      x[i] = NaN;
+      y[i] = NaN;
+      continue;
+    }
+    x[i] = toRad(lo - lon0) * R * cos0;
+    y[i] = toRad(la - lat0) * R;
+  }
+
+  const kx = kalman1DConstVelWithVel(t, x, sigmaA, sigmaZ);
+  const ky = kalman1DConstVelWithVel(t, y, sigmaA, sigmaZ);
+
+  const latOut = new Array(n);
+  const lonOut = new Array(n);
+  const speedKmh = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const xi = kx.pos[i];
+    const yi = ky.pos[i];
+    const vxi = kx.vel[i];
+    const vyi = ky.vel[i];
+    if (!Number.isFinite(xi) || !Number.isFinite(yi)) {
+      latOut[i] = NaN;
+      lonOut[i] = NaN;
+    } else {
+      latOut[i] = lat0 + toDeg(yi / R);
+      lonOut[i] = lon0 + toDeg(xi / (R * cos0));
+    }
+    if (Number.isFinite(vxi) && Number.isFinite(vyi)) {
+      speedKmh[i] = Math.sqrt(vxi * vxi + vyi * vyi) * 3.6;
+    } else {
+      speedKmh[i] = NaN;
+    }
+  }
+
+  return { t, lat: latOut, lon: lonOut, speedKmh };
+}
+
 function loadPersistedState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -117,10 +260,16 @@ function safeNumber(v, fallback) {
 }
 
 const els = {
+  sidebarToggle: document.getElementById("sidebarToggle"),
   driverSelect: document.getElementById("driverSelect"),
   tripSelect: document.getElementById("tripSelect"),
   windowSeconds: document.getElementById("windowSeconds"),
   downsample: document.getElementById("downsample"),
+  gpsFilter: document.getElementById("gpsFilter"),
+  gpsResample10Hz: document.getElementById("gpsResample10Hz"),
+  gpsMaWindow: document.getElementById("gpsMaWindow"),
+  gpsKalmanSigmaA: document.getElementById("gpsKalmanSigmaA"),
+  gpsKalmanSigmaZ: document.getElementById("gpsKalmanSigmaZ"),
   reloadBtn: document.getElementById("reloadBtn"),
   video: document.getElementById("video"),
   videoOverlayPlay: document.getElementById("videoOverlayPlay"),
@@ -130,6 +279,342 @@ const els = {
   plots: document.getElementById("plots"),
   map: document.getElementById("map"),
 };
+
+function setSidebarCollapsed(collapsed) {
+  const main = document.querySelector?.("main.main");
+  if (!main) return;
+  main.classList.toggle("sidebarCollapsed", !!collapsed);
+  if (els.sidebarToggle) {
+    els.sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+  }
+}
+
+function clampOddInt(n, min, max, fallback) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return fallback;
+  const c = clamp(Math.round(x), min, max);
+  return c % 2 === 1 ? c : clamp(c + 1, min, max);
+}
+
+function gpsFilterSettingsFromUi() {
+  const kind = String(els.gpsFilter?.value || "none");
+  const resample10Hz = !!els.gpsResample10Hz?.checked;
+  const maWindow = clampOddInt(els.gpsMaWindow?.value, 1, 301, 9);
+  const sigmaA = safeNumber(els.gpsKalmanSigmaA?.value, 1.5);
+  const sigmaZ = safeNumber(els.gpsKalmanSigmaZ?.value, 6);
+  return {
+    kind,
+    resample10Hz,
+    maWindow,
+    sigmaA: Math.max(0, sigmaA),
+    sigmaZ: Math.max(0, sigmaZ),
+  };
+}
+
+function resampleGpsTo10HzLocalMeters(gpsRaw) {
+  if (!gpsRaw || !Array.isArray(gpsRaw.t)) return null;
+  const tIn = gpsRaw.t || [];
+  const latIn = gpsRaw.lat || [];
+  const lonIn = gpsRaw.lon || [];
+  const n = tIn.length;
+  if (n === 0) return { t: [], lat: [], lon: [] };
+
+  // Establish origin
+  const lat0 = Number(latIn[0]);
+  const lon0 = Number(lonIn[0]);
+  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) {
+    return {
+      t: Array.from(tIn),
+      lat: Array.from(latIn),
+      lon: Array.from(lonIn),
+    };
+  }
+
+  // Build a clean list of valid samples (monotonic time, finite coords)
+  const samples = [];
+  for (let i = 0; i < n; i++) {
+    const ti = Number(tIn[i]);
+    const la = Number(latIn[i]);
+    const lo = Number(lonIn[i]);
+    if (!Number.isFinite(ti) || !Number.isFinite(la) || !Number.isFinite(lo))
+      continue;
+    if (samples.length > 0 && ti <= samples[samples.length - 1].t) continue;
+    samples.push({ t: ti, lat: la, lon: lo });
+  }
+  if (samples.length < 2) {
+    return {
+      t: samples.map((s) => s.t),
+      lat: samples.map((s) => s.lat),
+      lon: samples.map((s) => s.lon),
+    };
+  }
+
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const phi0 = toRad(lat0);
+  const cos0 = Math.cos(phi0);
+
+  const t0 = samples[0].t;
+  const tN = samples[samples.length - 1].t;
+  const dt = 0.1;
+  const m = Math.max(1, Math.floor((tN - t0) / dt) + 1);
+
+  const tOut = new Array(m);
+  const xOut = new Array(m);
+  const yOut = new Array(m);
+
+  // Two-pointer linear interpolation in local meters
+  let j = 0;
+  for (let k = 0; k < m; k++) {
+    const tk = t0 + k * dt;
+    tOut[k] = tk;
+
+    while (j + 1 < samples.length && samples[j + 1].t < tk) j++;
+    const a = samples[j];
+    const b = samples[Math.min(samples.length - 1, j + 1)];
+    if (!a || !b) {
+      xOut[k] = NaN;
+      yOut[k] = NaN;
+      continue;
+    }
+    const denom = b.t - a.t;
+    const alpha = denom > 0 ? (tk - a.t) / denom : 0;
+    const aa = clamp01(alpha);
+
+    // Convert endpoints to meters
+    const ax = toRad(a.lon - lon0) * R * cos0;
+    const ay = toRad(a.lat - lat0) * R;
+    const bx = toRad(b.lon - lon0) * R * cos0;
+    const by = toRad(b.lat - lat0) * R;
+
+    xOut[k] = lerp(ax, bx, aa);
+    yOut[k] = lerp(ay, by, aa);
+  }
+
+  // Back to lat/lon
+  const latOut = new Array(m);
+  const lonOut = new Array(m);
+  for (let k = 0; k < m; k++) {
+    const xi = xOut[k];
+    const yi = yOut[k];
+    if (!Number.isFinite(xi) || !Number.isFinite(yi)) {
+      latOut[k] = NaN;
+      lonOut[k] = NaN;
+      continue;
+    }
+    latOut[k] = lat0 + toDeg(yi / R);
+    lonOut[k] = lon0 + toDeg(xi / (R * cos0));
+  }
+
+  return { t: tOut, lat: latOut, lon: lonOut };
+}
+
+function applyMovingAverageCentered(arr, windowSize) {
+  const n = Array.isArray(arr) ? arr.length : 0;
+  const out = new Array(n);
+  const w = clampOddInt(windowSize, 1, 301, 9);
+  const half = Math.floor(w / 2);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    let cnt = 0;
+    const a = Math.max(0, i - half);
+    const b = Math.min(n - 1, i + half);
+    for (let j = a; j <= b; j++) {
+      const v = arr[j];
+      if (!Number.isFinite(v)) continue;
+      sum += v;
+      cnt++;
+    }
+    out[i] = cnt > 0 ? sum / cnt : Number(arr[i]);
+  }
+  return out;
+}
+
+// 1D constant-velocity Kalman filter with per-sample dt.
+// State: [pos, vel]. Measurement: pos.
+function kalman1DConstVel(t, z, sigmaA, sigmaZ) {
+  const n = Array.isArray(t) ? t.length : 0;
+  const out = new Array(n);
+  if (n === 0) return out;
+
+  const sA = Math.max(0, Number(sigmaA));
+  const sZ = Math.max(0, Number(sigmaZ));
+  const q = sA * sA;
+  const r = sZ * sZ;
+
+  let x0 = Number(z[0]);
+  if (!Number.isFinite(x0)) x0 = 0;
+  let x1 = 0;
+  let p00 = 10;
+  let p01 = 0;
+  let p10 = 0;
+  let p11 = 10;
+
+  out[0] = x0;
+  for (let i = 1; i < n; i++) {
+    const ti0 = Number(t[i - 1]);
+    const ti1 = Number(t[i]);
+    const dtRaw = ti1 - ti0;
+    const dt = Number.isFinite(dtRaw) && dtRaw > 0 ? dtRaw : 0;
+
+    // Predict: x = F x
+    const x0p = x0 + dt * x1;
+    const x1p = x1;
+
+    // Predict covariance: P = F P F^T + Q
+    // F = [[1, dt], [0, 1]]
+    const fp00 = p00 + dt * (p10 + p01) + dt * dt * p11;
+    const fp01 = p01 + dt * p11;
+    const fp10 = p10 + dt * p11;
+    const fp11 = p11;
+
+    // Q for constant-accel noise
+    const dt2 = dt * dt;
+    const dt3 = dt2 * dt;
+    const dt4 = dt2 * dt2;
+    const q00 = 0.25 * dt4 * q;
+    const q01 = 0.5 * dt3 * q;
+    const q11 = dt2 * q;
+
+    let pp00 = fp00 + q00;
+    let pp01 = fp01 + q01;
+    let pp10 = fp10 + q01;
+    let pp11 = fp11 + q11;
+
+    // Update with measurement z
+    const zi = Number(z[i]);
+    if (!Number.isFinite(zi) || dt === 0) {
+      x0 = x0p;
+      x1 = x1p;
+      p00 = pp00;
+      p01 = pp01;
+      p10 = pp10;
+      p11 = pp11;
+      out[i] = x0;
+      continue;
+    }
+
+    // Innovation
+    const y = zi - x0p;
+    const s = pp00 + r;
+    const k0 = s !== 0 ? pp00 / s : 0;
+    const k1 = s !== 0 ? pp10 / s : 0;
+
+    x0 = x0p + k0 * y;
+    x1 = x1p + k1 * y;
+
+    // P = (I - K H) P where H=[1,0]
+    const p00n = (1 - k0) * pp00;
+    const p01n = (1 - k0) * pp01;
+    const p10n = pp10 - k1 * pp00;
+    const p11n = pp11 - k1 * pp01;
+
+    p00 = p00n;
+    p01 = p01n;
+    p10 = p10n;
+    p11 = p11n;
+
+    out[i] = x0;
+  }
+  return out;
+}
+
+function applyGpsFilter(gpsRaw, settings) {
+  if (!gpsRaw || !Array.isArray(gpsRaw.t)) return null;
+  const base = settings.resample10Hz
+    ? resampleGpsTo10HzLocalMeters(gpsRaw)
+    : gpsRaw;
+  if (!base || !Array.isArray(base.t)) return null;
+  const t = base.t || [];
+  const lat = base.lat || [];
+  const lon = base.lon || [];
+  if (settings.kind === "ma") {
+    return {
+      t,
+      lat: applyMovingAverageCentered(lat, settings.maWindow),
+      lon: applyMovingAverageCentered(lon, settings.maWindow),
+    };
+  }
+  if (settings.kind === "kalman") {
+    return kalmanGpsLocalMeters(t, lat, lon, settings.sigmaA, settings.sigmaZ);
+  }
+  return { t, lat: Array.from(lat), lon: Array.from(lon) };
+}
+
+function recomputeGpsSpeedPanel() {
+  const speedPanel = state.panels.find(
+    (p) => p?.spec?.kind === "computed" && p?.spec?.key === "gps_speed_calc"
+  );
+  if (!speedPanel) return;
+  if (!state.gps || !Array.isArray(state.gps.t) || state.gps.t.length <= 1) {
+    speedPanel.t = [];
+    speedPanel.v = [];
+    speedPanel.yMinSmooth = undefined;
+    speedPanel.yMaxSmooth = undefined;
+    speedPanel.chart.data.datasets[0].label = speedPanel.spec.title;
+    speedPanel.chart.data.datasets[0].data = [];
+    speedPanel.chart.data.datasets[1].data = [];
+    speedPanel.chart.update();
+    return;
+  }
+
+  const tArr = state.gps.t;
+  const outT = [];
+  const outV = [];
+  if (
+    Array.isArray(state.gps.speedKmh) &&
+    state.gps.speedKmh.length === tArr.length
+  ) {
+    for (let i = 0; i < tArr.length; i++) {
+      const ti = tArr[i];
+      const vi = state.gps.speedKmh[i];
+      if (!Number.isFinite(ti) || !Number.isFinite(vi)) continue;
+      outT.push(ti);
+      outV.push(vi);
+    }
+  } else {
+    const latArr = state.gps.lat;
+    const lonArr = state.gps.lon;
+    for (let i = 1; i < tArr.length; i++) {
+      const t0 = tArr[i - 1];
+      const t1 = tArr[i];
+      const la0 = latArr[i - 1];
+      const lo0 = lonArr[i - 1];
+      const la1 = latArr[i];
+      const lo1 = lonArr[i];
+      if (
+        !Number.isFinite(t0) ||
+        !Number.isFinite(t1) ||
+        !Number.isFinite(la0) ||
+        !Number.isFinite(lo0) ||
+        !Number.isFinite(la1) ||
+        !Number.isFinite(lo1)
+      )
+        continue;
+      const dt = t1 - t0;
+      if (!Number.isFinite(dt) || dt <= 0) continue;
+      const d = haversineMeters(la0, lo0, la1, lo1);
+      if (!Number.isFinite(d) || d < 0) continue;
+      const vKmh = (d / dt) * 3.6;
+      outT.push(t1);
+      outV.push(vKmh);
+    }
+  }
+
+  speedPanel.t = outT;
+  speedPanel.v = outV;
+  speedPanel.yMinSmooth = undefined;
+  speedPanel.yMaxSmooth = undefined;
+  speedPanel.chart.data.datasets[0].label = speedPanel.spec.title;
+  speedPanel.chart.data.datasets[0].data = outT.map((t, i) => ({
+    x: t,
+    y: outV[i],
+  }));
+  speedPanel.chart.options.plugins.odometerOverlay.enabled = true;
+  speedPanel.chart.options.plugins.odometerOverlay.max = 160;
+  speedPanel.chart.update();
+}
 
 function escapeHtml(s) {
   return String(s)
@@ -1247,6 +1732,7 @@ async function loadTripData() {
 
   // Load GPS track for the map
   state.gps = null;
+  state.gpsRaw = null;
   try {
     const gpsUrl = `/api/trips/${encodeURIComponent(
       tripId
@@ -1254,60 +1740,17 @@ async function loadTripData() {
     const gpsRes = await fetch(gpsUrl);
     if (gpsRes.ok) {
       const gpsJson = await gpsRes.json();
-      state.gps = {
+      state.gpsRaw = {
         t: gpsJson.t || [],
         lat: gpsJson.lat || [],
         lon: gpsJson.lon || [],
       };
-      setGpsTrackOnMap(state.gps.t, state.gps.lat, state.gps.lon);
+      const settings = gpsFilterSettingsFromUi();
+      state.gps = applyGpsFilter(state.gpsRaw, settings);
+      if (state.gps)
+        setGpsTrackOnMap(state.gps.t, state.gps.lat, state.gps.lon);
 
-      const speedPanel = state.panels.find(
-        (p) => p?.spec?.kind === "computed" && p?.spec?.key === "gps_speed_calc"
-      );
-      if (speedPanel && state.gps.t.length > 1) {
-        const tArr = state.gps.t;
-        const latArr = state.gps.lat;
-        const lonArr = state.gps.lon;
-        const outT = [];
-        const outV = [];
-        for (let i = 1; i < tArr.length; i++) {
-          const t0 = tArr[i - 1];
-          const t1 = tArr[i];
-          const la0 = latArr[i - 1];
-          const lo0 = lonArr[i - 1];
-          const la1 = latArr[i];
-          const lo1 = lonArr[i];
-          if (
-            !Number.isFinite(t0) ||
-            !Number.isFinite(t1) ||
-            !Number.isFinite(la0) ||
-            !Number.isFinite(lo0) ||
-            !Number.isFinite(la1) ||
-            !Number.isFinite(lo1)
-          )
-            continue;
-          const dt = t1 - t0;
-          if (!Number.isFinite(dt) || dt <= 0) continue;
-          const d = haversineMeters(la0, lo0, la1, lo1);
-          if (!Number.isFinite(d) || d < 0) continue;
-          const vKmh = (d / dt) * 3.6;
-          outT.push(t1);
-          outV.push(vKmh);
-        }
-
-        speedPanel.t = outT;
-        speedPanel.v = outV;
-        speedPanel.yMinSmooth = undefined;
-        speedPanel.yMaxSmooth = undefined;
-        speedPanel.chart.data.datasets[0].label = speedPanel.spec.title;
-        speedPanel.chart.data.datasets[0].data = outT.map((t, i) => ({
-          x: t,
-          y: outV[i],
-        }));
-        speedPanel.chart.options.plugins.odometerOverlay.enabled = true;
-        speedPanel.chart.options.plugins.odometerOverlay.max = 160;
-        speedPanel.chart.update();
-      }
+      recomputeGpsSpeedPanel();
     }
   } catch {
     // ignore map failures
@@ -1445,6 +1888,16 @@ function stopSmoothLoop() {
 }
 
 function attachEvents() {
+  if (els.sidebarToggle) {
+    els.sidebarToggle.addEventListener("click", () => {
+      const main = document.querySelector?.("main.main");
+      const collapsed = !!main?.classList?.contains("sidebarCollapsed");
+      const next = !collapsed;
+      setSidebarCollapsed(next);
+      savePersistedState({ sidebarCollapsed: next });
+    });
+  }
+
   if (els.videoOverlayPlay && els.video) {
     els.videoOverlayPlay.addEventListener("click", () => {
       if (els.video.paused || els.video.ended) {
@@ -1487,6 +1940,34 @@ function attachEvents() {
   els.reloadBtn.addEventListener("click", () => {
     loadTripData().catch((e) => renderMetaError(e));
   });
+
+  const applyGpsFilterAndRedraw = () => {
+    const s = gpsFilterSettingsFromUi();
+    savePersistedState({
+      gpsFilter: s.kind,
+      gpsResample10Hz: s.resample10Hz,
+      gpsMaWindow: s.maWindow,
+      gpsKalmanSigmaA: s.sigmaA,
+      gpsKalmanSigmaZ: s.sigmaZ,
+    });
+    if (!state.gpsRaw) return;
+    state.gps = applyGpsFilter(state.gpsRaw, s);
+    if (state.gps) setGpsTrackOnMap(state.gps.t, state.gps.lat, state.gps.lon);
+    recomputeGpsSpeedPanel();
+    // Refresh cursor-derived elements (marker + computed panels)
+    updateCursor();
+  };
+
+  if (els.gpsFilter)
+    els.gpsFilter.addEventListener("change", applyGpsFilterAndRedraw);
+  if (els.gpsResample10Hz)
+    els.gpsResample10Hz.addEventListener("change", applyGpsFilterAndRedraw);
+  if (els.gpsMaWindow)
+    els.gpsMaWindow.addEventListener("change", applyGpsFilterAndRedraw);
+  if (els.gpsKalmanSigmaA)
+    els.gpsKalmanSigmaA.addEventListener("change", applyGpsFilterAndRedraw);
+  if (els.gpsKalmanSigmaZ)
+    els.gpsKalmanSigmaZ.addEventListener("change", applyGpsFilterAndRedraw);
 
   els.windowSeconds.addEventListener("change", () => {
     state.windowSeconds = Number(els.windowSeconds.value) || 30;
@@ -1546,10 +2027,22 @@ async function main() {
   // Restore persisted values into inputs before initial load
   const persisted = loadPersistedState();
   if (persisted) {
+    if (typeof persisted.sidebarCollapsed === "boolean")
+      setSidebarCollapsed(persisted.sidebarCollapsed);
     if (typeof persisted.windowSeconds === "number")
       els.windowSeconds.value = String(persisted.windowSeconds);
     if (typeof persisted.downsample === "number")
       els.downsample.value = String(persisted.downsample);
+    if (typeof persisted.gpsFilter === "string" && els.gpsFilter)
+      els.gpsFilter.value = persisted.gpsFilter;
+    if (typeof persisted.gpsResample10Hz === "boolean" && els.gpsResample10Hz)
+      els.gpsResample10Hz.checked = persisted.gpsResample10Hz;
+    if (typeof persisted.gpsMaWindow === "number" && els.gpsMaWindow)
+      els.gpsMaWindow.value = String(persisted.gpsMaWindow);
+    if (typeof persisted.gpsKalmanSigmaA === "number" && els.gpsKalmanSigmaA)
+      els.gpsKalmanSigmaA.value = String(persisted.gpsKalmanSigmaA);
+    if (typeof persisted.gpsKalmanSigmaZ === "number" && els.gpsKalmanSigmaZ)
+      els.gpsKalmanSigmaZ.value = String(persisted.gpsKalmanSigmaZ);
   }
 
   await loadTrips();

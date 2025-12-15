@@ -17,10 +17,69 @@ body {
 .header {
   padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(11, 16, 32, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.sidebarToggle {
+  width: 38px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 25, 54, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 0;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.sidebarToggle:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.sidebarToggle:focus-visible {
+  outline: 2px solid rgba(110, 168, 254, 0.95);
+  outline-offset: 3px;
+}
+
+.hamburger {
+  position: relative;
+  width: 18px;
+  height: 14px;
+  display: block;
+}
+
+.hamburgerLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(230, 232, 239, 0.92);
+  border-radius: 999px;
+  transform-origin: center;
+  transition: transform 160ms ease, top 160ms ease, opacity 160ms ease;
+}
+
+.hamburgerLine:nth-child(1) {
+  top: 0;
+}
+
+.hamburgerLine:nth-child(2) {
+  top: 6px;
+}
+
+.hamburgerLine:nth-child(3) {
+  top: 12px;
 }
 
 .title {
@@ -39,6 +98,48 @@ body {
   overflow-y: hidden;
   white-space: nowrap;
   -webkit-overflow-scrolling: touch;
+}
+
+.sidebar {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.sidebarTitle {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
+  margin-bottom: 10px;
+}
+
+.controls.controlsSidebar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  white-space: normal;
+  overflow: visible;
+}
+
+.controls.controlsSidebar label {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  align-items: start;
+}
+
+.controls.controlsSidebar select,
+.controls.controlsSidebar input,
+.controls.controlsSidebar button {
+  width: 100%;
+}
+
+.controls.controlsSidebar input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  justify-self: start;
 }
 
 label {
@@ -77,9 +178,32 @@ button:hover {
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 280px 1.2fr 1fr;
   gap: 10px;
   padding: 10px;
+  overflow: hidden;
+}
+
+.main.sidebarCollapsed {
+  grid-template-columns: 1.2fr 1fr;
+}
+
+.main.sidebarCollapsed .sidebar {
+  display: none;
+}
+
+.main.sidebarCollapsed .sidebarToggle .hamburgerLine:nth-child(1) {
+  top: 6px;
+  transform: rotate(45deg);
+}
+
+.main.sidebarCollapsed .sidebarToggle .hamburgerLine:nth-child(2) {
+  opacity: 0;
+}
+
+.main.sidebarCollapsed .sidebarToggle .hamburgerLine:nth-child(3) {
+  top: 6px;
+  transform: rotate(-45deg);
 }
 
 .left,
@@ -93,10 +217,14 @@ button:hover {
 
 .right {
   padding: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .plots {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   overflow: auto;
   display: flex;
