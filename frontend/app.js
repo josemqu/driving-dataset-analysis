@@ -270,6 +270,16 @@ const els = {
   gpsMaWindow: document.getElementById("gpsMaWindow"),
   gpsKalmanSigmaA: document.getElementById("gpsKalmanSigmaA"),
   gpsKalmanSigmaZ: document.getElementById("gpsKalmanSigmaZ"),
+  tableDrawerToggle: document.getElementById("tableDrawerToggle"),
+  tableDrawerBody: document.getElementById("tableDrawerBody"),
+  tableFile: document.getElementById("tableFile"),
+  tableDownsample: document.getElementById("tableDownsample"),
+  tableOffset: document.getElementById("tableOffset"),
+  tableLimit: document.getElementById("tableLimit"),
+  tableLoad: document.getElementById("tableLoad"),
+  tableOpenTab: document.getElementById("tableOpenTab"),
+  tableMeta: document.getElementById("tableMeta"),
+  tableWrap: document.getElementById("tableWrap"),
   reloadBtn: document.getElementById("reloadBtn"),
   video: document.getElementById("video"),
   videoOverlayPlay: document.getElementById("videoOverlayPlay"),
@@ -287,6 +297,117 @@ function setSidebarCollapsed(collapsed) {
   if (els.sidebarToggle) {
     els.sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
   }
+}
+
+function setTableDrawerOpen(open) {
+  if (!els.tableDrawerBody || !els.tableDrawerToggle) return;
+  const isOpen = !!open;
+  els.tableDrawerBody.hidden = !isOpen;
+  els.tableDrawerToggle.setAttribute("aria-expanded", String(isOpen));
+}
+
+function renderTableError(err) {
+  if (!els.tableWrap) return;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (els.tableMeta) els.tableMeta.textContent = "";
+  els.tableWrap.innerHTML = `<div style="padding:10px"><code>${escapeHtml(
+    msg
+  )}</code></div>`;
+}
+
+function renderTable(columns, rows, meta) {
+  if (!els.tableWrap) return;
+  const cols = Array.isArray(columns) ? columns : [];
+  const rws = Array.isArray(rows) ? rows : [];
+
+  if (els.tableMeta) {
+    const parts = [];
+    if (meta?.file) parts.push(`file=${meta.file}`);
+    if (typeof meta?.downsample === "number")
+      parts.push(`downsample=${meta.downsample}`);
+    if (typeof meta?.offset === "number") parts.push(`offset=${meta.offset}`);
+    if (typeof meta?.limit === "number") parts.push(`limit=${meta.limit}`);
+    if (typeof meta?.total === "number") parts.push(`total=${meta.total}`);
+    els.tableMeta.textContent = parts.join(" · ");
+  }
+
+  const thead = `<thead><tr>${cols
+    .map((c) => `<th><code>${escapeHtml(c)}</code></th>`)
+    .join("")}</tr></thead>`;
+  const tbody = `<tbody>${rws
+    .map((row) => {
+      const cells = Array.isArray(row) ? row : [];
+      return `<tr>${cols
+        .map((_, i) => {
+          const v = cells[i];
+          const s = Number.isFinite(v) ? Number(v).toFixed(6) : String(v ?? "");
+          return `<td><code>${escapeHtml(s)}</code></td>`;
+        })
+        .join("")}</tr>`;
+    })
+    .join("")}</tbody>`;
+  els.tableWrap.innerHTML = `<table class="dataTable">${thead}${tbody}</table>`;
+}
+
+async function loadTableData() {
+  const tripId = els.tripSelect?.value;
+  if (!tripId) throw new Error("No trip selected");
+
+  const file = String(els.tableFile?.value || "RAW_GPS");
+  const downsample = clamp(safeNumber(els.tableDownsample?.value, 10), 1, 1000);
+  const offset = Math.max(0, Math.floor(safeNumber(els.tableOffset?.value, 0)));
+  const limit = clamp(
+    Math.floor(safeNumber(els.tableLimit?.value, 200)),
+    1,
+    2000
+  );
+
+  savePersistedState({
+    tableOpen: true,
+    tableFile: file,
+    tableDownsample: downsample,
+    tableOffset: offset,
+    tableLimit: limit,
+  });
+
+  const url = `/api/trips/${encodeURIComponent(
+    tripId
+  )}/table?file=${encodeURIComponent(file)}&downsample=${encodeURIComponent(
+    downsample
+  )}&offset=${encodeURIComponent(offset)}&limit=${encodeURIComponent(limit)}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Failed to load table (${res.status}) ${txt}`.trim());
+  }
+  const json = await res.json();
+  renderTable(json.columns, json.rows, {
+    file: json.file,
+    downsample: json.downsample,
+    offset: json.offset,
+    limit: json.limit,
+    total: json.total,
+  });
+}
+
+function openTableInNewTab() {
+  const tripId = els.tripSelect?.value;
+  if (!tripId) return;
+  const file = String(els.tableFile?.value || "RAW_GPS");
+  const downsample = clamp(safeNumber(els.tableDownsample?.value, 10), 1, 1000);
+  const offset = Math.max(0, Math.floor(safeNumber(els.tableOffset?.value, 0)));
+  const limit = clamp(
+    Math.floor(safeNumber(els.tableLimit?.value, 200)),
+    1,
+    2000
+  );
+  const url = `/tables.html?tripId=${encodeURIComponent(
+    tripId
+  )}&file=${encodeURIComponent(file)}&downsample=${encodeURIComponent(
+    downsample
+  )}&offset=${encodeURIComponent(offset)}&limit=${encodeURIComponent(limit)}`;
+  window.open(url, "_blank", "noopener");
 }
 
 function clampOddInt(n, min, max, fallback) {
@@ -1916,6 +2037,33 @@ function attachEvents() {
     });
   }
 
+  if (els.tableDrawerToggle) {
+    els.tableDrawerToggle.addEventListener("click", () => {
+      const isOpen =
+        els.tableDrawerToggle?.getAttribute("aria-expanded") === "true";
+      const next = !isOpen;
+      setTableDrawerOpen(next);
+      savePersistedState({ tableOpen: next });
+      if (next && els.tableWrap && !els.tableWrap.innerHTML) {
+        loadTableData().catch((e) => renderTableError(e));
+      }
+    });
+  }
+
+  if (els.tableLoad) {
+    els.tableLoad.addEventListener("click", () => {
+      setTableDrawerOpen(true);
+      savePersistedState({ tableOpen: true });
+      loadTableData().catch((e) => renderTableError(e));
+    });
+  }
+
+  if (els.tableOpenTab) {
+    els.tableOpenTab.addEventListener("click", () => {
+      openTableInNewTab();
+    });
+  }
+
   if (els.videoOverlayPlay && els.video) {
     els.videoOverlayPlay.addEventListener("click", () => {
       if (els.video.paused || els.video.ended) {
@@ -2047,6 +2195,8 @@ async function main() {
   if (persisted) {
     if (typeof persisted.sidebarCollapsed === "boolean")
       setSidebarCollapsed(persisted.sidebarCollapsed);
+    if (typeof persisted.tableOpen === "boolean")
+      setTableDrawerOpen(persisted.tableOpen);
     if (typeof persisted.windowSeconds === "number")
       els.windowSeconds.value = String(persisted.windowSeconds);
     if (typeof persisted.downsample === "number")
@@ -2061,6 +2211,15 @@ async function main() {
       els.gpsKalmanSigmaA.value = String(persisted.gpsKalmanSigmaA);
     if (typeof persisted.gpsKalmanSigmaZ === "number" && els.gpsKalmanSigmaZ)
       els.gpsKalmanSigmaZ.value = String(persisted.gpsKalmanSigmaZ);
+
+    if (typeof persisted.tableFile === "string" && els.tableFile)
+      els.tableFile.value = persisted.tableFile;
+    if (typeof persisted.tableDownsample === "number" && els.tableDownsample)
+      els.tableDownsample.value = String(persisted.tableDownsample);
+    if (typeof persisted.tableOffset === "number" && els.tableOffset)
+      els.tableOffset.value = String(persisted.tableOffset);
+    if (typeof persisted.tableLimit === "number" && els.tableLimit)
+      els.tableLimit.value = String(persisted.tableLimit);
   }
 
   await loadTrips();

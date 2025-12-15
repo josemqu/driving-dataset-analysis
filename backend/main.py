@@ -15,6 +15,7 @@ from .trips import (
     get_events,
     get_gps_track,
     get_series,
+    get_table,
 )
 
 
@@ -132,6 +133,45 @@ def get_trip_gps(
         "lat": gps.lat.tolist(),
         "lon": gps.lon.tolist(),
         "speed": gps.speed.tolist(),
+    }
+
+
+@app.get("/api/trips/{trip_id}/table")
+def get_trip_table(
+    trip_id: str,
+    file: str = Query(..., min_length=1),
+    downsample: int = Query(default=1, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=2000),
+):
+    idx = trip_index()
+    trip = idx.by_id.get(trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    try:
+        columns, rows, total = get_table(
+            trip,
+            file_stem=file,
+            downsample=downsample,
+            offset=offset,
+            limit=limit,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "tripId": trip.id,
+        "file": file,
+        "offsetSeconds": trip.offset_seconds,
+        "downsample": downsample,
+        "offset": offset,
+        "limit": limit,
+        "total": total,
+        "columns": columns,
+        "rows": rows.tolist(),
     }
 
 

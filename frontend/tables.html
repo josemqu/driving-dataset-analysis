@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UAH DriveSet Data Tables</title>
+    <link rel="stylesheet" href="/styles.css?v=4" />
+  </head>
+  <body>
+    <div class="app tablesApp">
+      <header class="header">
+        <a class="tablesBack" href="/">Back</a>
+        <div class="title">UAH DriveSet Data Tables</div>
+        <div class="tablesControls">
+          <label>
+            Driver
+            <select id="tblDriver"></select>
+          </label>
+          <label>
+            Trip
+            <select id="tblTrip"></select>
+          </label>
+          <label>
+            File
+            <select id="tblFile">
+              <option value="RAW_GPS">RAW_GPS</option>
+              <option value="RAW_ACCELEROMETERS">RAW_ACCELEROMETERS</option>
+              <option value="PROC_LANE_DETECTION">PROC_LANE_DETECTION</option>
+              <option value="PROC_VEHICLE_DETECTION">
+                PROC_VEHICLE_DETECTION
+              </option>
+              <option value="PROC_OPENSTREETMAP_DATA">
+                PROC_OPENSTREETMAP_DATA
+              </option>
+            </select>
+          </label>
+          <label>
+            Downsample
+            <input
+              id="tblDownsample"
+              type="number"
+              min="1"
+              max="1000"
+              step="1"
+              value="10"
+            />
+          </label>
+          <label>
+            Offset
+            <input id="tblOffset" type="number" min="0" step="1" value="0" />
+          </label>
+          <label>
+            Limit
+            <input
+              id="tblLimit"
+              type="number"
+              min="10"
+              max="2000"
+              step="10"
+              value="200"
+            />
+          </label>
+          <button id="tblPrev" type="button">Prev</button>
+          <button id="tblNext" type="button">Next</button>
+          <button id="tblLoad" type="button">Load</button>
+        </div>
+      </header>
+
+      <main class="tablesMain">
+        <div class="tableMeta" id="tblMeta"></div>
+        <div class="tableWrap" id="tblWrap"></div>
+      </main>
+    </div>
+
+    <script src="/tables.js?v=4"></script>
+  </body>
+</html>

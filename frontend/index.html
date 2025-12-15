@@ -10,7 +10,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   </head>
   <body>
@@ -145,6 +145,80 @@
           <div class="plots" id="plots"></div>
         </section>
       </main>
+
+      <section class="tableDrawer" id="tableDrawer" aria-label="Data table">
+        <div class="tableDrawerHeader">
+          <button
+            id="tableDrawerToggle"
+            class="tableDrawerToggle"
+            type="button"
+            aria-controls="tableDrawerBody"
+            aria-expanded="false"
+          >
+            Data
+          </button>
+          <div class="tableDrawerTitle">Data table</div>
+          <div class="tableDrawerControls">
+            <label>
+              File
+              <select id="tableFile">
+                <option value="RAW_GPS">RAW_GPS</option>
+                <option value="RAW_ACCELEROMETERS">RAW_ACCELEROMETERS</option>
+                <option value="PROC_LANE_DETECTION">PROC_LANE_DETECTION</option>
+                <option value="PROC_VEHICLE_DETECTION">
+                  PROC_VEHICLE_DETECTION
+                </option>
+                <option value="PROC_OPENSTREETMAP_DATA">
+                  PROC_OPENSTREETMAP_DATA
+                </option>
+              </select>
+            </label>
+
+            <label>
+              Downsample
+              <input
+                id="tableDownsample"
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                value="10"
+              />
+            </label>
+
+            <label>
+              Offset
+              <input
+                id="tableOffset"
+                type="number"
+                min="0"
+                step="1"
+                value="0"
+              />
+            </label>
+
+            <label>
+              Limit
+              <input
+                id="tableLimit"
+                type="number"
+                min="10"
+                max="2000"
+                step="10"
+                value="200"
+              />
+            </label>
+
+            <button id="tableLoad" type="button">Load</button>
+            <button id="tableOpenTab" type="button">Open in tab</button>
+          </div>
+        </div>
+
+        <div class="tableDrawerBody" id="tableDrawerBody" hidden>
+          <div class="tableMeta" id="tableMeta"></div>
+          <div class="tableWrap" id="tableWrap"></div>
+        </div>
+      </section>
     </div>
 
     <script
@@ -152,6 +226,6 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
-    <script src="/app.js?v=2"></script>
+    <script src="/app.js?v=3"></script>
   </body>
 </html>

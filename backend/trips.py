@@ -158,6 +158,58 @@ _ALLOWED_SERIES_FILES: set[str] = {
 }
 
 
+_TABLE_COLUMN_NAMES: dict[str, list[str]] = {
+    "RAW_ACCELEROMETERS": [
+        "Activation bool (1 if speed>50Km/h)",
+        "X acceleration (Gs)",
+        "Y acceleration (Gs)",
+        "Z acceleration (Gs)",
+        "X accel filtered by KF (Gs)",
+        "Y accel filtered by KF (Gs)",
+        "Z accel filtered by KF (Gs)",
+        "Roll (degrees)",
+        "Pitch (degrees)",
+        "Yaw (degrees)",
+    ],
+    "RAW_GPS": [
+        "Speed (Km/h)",
+        "Latitude",
+        "Longitude",
+        "Altitude",
+        "Vertical accuracy",
+        "Horizontal accuracy",
+        "Course (degrees)",
+        "Difcourse: course variation",
+        "Position state [internal val]",
+        "Lanex dist state [internal val]",
+        "Lanex history [internal val]",
+    ],
+    "PROC_LANE_DETECTION": [
+        "Car pos. from lane center (meters)",
+        "Phi",
+        "Road width (meters)",
+        "State of lane estimator",
+    ],
+    "PROC_VEHICLE_DETECTION": [
+        "Distance to ahead vehicle (meters)",
+        "Impact time to ahead vehicle (secs.)",
+        "Detected # of vehicles",
+        "Gps speed (Km/h) [redundant val]",
+    ],
+    "PROC_OPENSTREETMAP_DATA": [
+        "Current road maxspeed",
+        "Maxspeed reliability [Flag]",
+        "Road type [graph not available]",
+        "# of lanes in road",
+        "Estimated current lane",
+        "Latitude used to query OSM",
+        "Longitude used to query OSM",
+        "Delay answer OSM query (seconds)",
+        "Speed (Km/h) [redundant val]",
+    ],
+}
+
+
 def _parse_datetime_prefix(name: str) -> Optional[datetime]:
     if len(name) < 14:
         return None
@@ -231,6 +283,47 @@ def get_accelerometers(trip: Trip, axis: AccelAxis, downsample: int = 1) -> Seri
         v = v[::downsample]
 
     return Series(t=t, v=v)
+
+
+def get_table(
+    trip: Trip,
+    file_stem: str,
+    *,
+    downsample: int = 1,
+    offset: int = 0,
+    limit: int = 200,
+) -> tuple[list[str], np.ndarray, int]:
+    if file_stem not in _ALLOWED_SERIES_FILES:
+        raise ValueError(f"File not allowed: {file_stem}")
+    if downsample < 1:
+        raise ValueError("downsample must be >= 1")
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+
+    path = trip.folder_path / f"{file_stem}.txt"
+    if not path.exists():
+        raise FileNotFoundError(f"Table file not found: {path}")
+
+    data = np.loadtxt(str(path), dtype=float)
+    if downsample > 1:
+        data = data[::downsample]
+
+    total = int(data.shape[0])
+    start = min(offset, total)
+    end = min(start + limit, total)
+    slice_ = data[start:end]
+
+    expected_cols = int(data.shape[1]) - 1
+    names = _TABLE_COLUMN_NAMES.get(file_stem)
+    if names and len(names) == expected_cols:
+        col_names = names
+    else:
+        col_names = [f"col{i}" for i in range(1, expected_cols + 1)]
+
+    columns = ["t"] + col_names
+    return columns, slice_, total
 
 
 def get_gps_track(trip: Trip, downsample: int = 1) -> GpsTrack:

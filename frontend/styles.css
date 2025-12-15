@@ -500,6 +500,135 @@ button:hover {
   word-break: break-word;
 }
 
+.tableDrawer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(11, 16, 32, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.tableDrawerHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.tableDrawerTitle {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
+.tableDrawerControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tableDrawerControls label {
+  font-size: 11px;
+}
+
+.tableDrawerToggle {
+  width: 38px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 25, 54, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tableDrawerToggle:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.tableDrawerToggle:focus-visible {
+  outline: 2px solid rgba(110, 168, 254, 0.95);
+  outline-offset: 3px;
+}
+
+.tableDrawerBody {
+  height: 280px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 10px 12px;
+}
+
+.tableMeta {
+  font-size: 11px;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+
+.tableWrap {
+  height: calc(100% - 26px);
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.dataTable th,
+.dataTable td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+
+.dataTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(11, 16, 32, 0.96);
+  font-weight: 600;
+}
+
+.tablesBack {
+  color: rgba(230, 232, 239, 0.9);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(17, 25, 54, 0.65);
+}
+
+.tablesBack:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.tablesControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tablesMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.tablesMain .tableWrap {
+  flex: 1;
+  min-height: 0;
+}
+
 @media (max-width: 700px) {
   .metaRow {
     grid-template-columns: 1fr;
