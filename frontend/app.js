@@ -1839,6 +1839,24 @@ function updateCursor() {
         targetMin = 0;
         if (!Number.isFinite(targetMax) || targetMax <= 0) targetMax = 1;
       }
+
+      if (p.spec.key === "gps_speed") {
+        // RAW_GPS speed: avoid over-zoom when the variation is tiny.
+        // Keep a minimum Y-range of 20 Km/h so small fluctuations don't look like spikes.
+        const minSpan = 20;
+        if (Number.isFinite(targetMin) && Number.isFinite(targetMax)) {
+          const span = targetMax - targetMin;
+          if (Number.isFinite(span) && span > 0 && span < minSpan) {
+            const mid = (targetMin + targetMax) / 2;
+            targetMin = mid - minSpan / 2;
+            targetMax = mid + minSpan / 2;
+          }
+        }
+        // Speed can't be negative; keep baseline at 0.
+        if (Number.isFinite(targetMin)) targetMin = Math.max(0, targetMin);
+        if (Number.isFinite(targetMax) && targetMax < minSpan)
+          targetMax = minSpan;
+      }
       const alpha = 0.18;
       p.yMinSmooth =
         typeof p.yMinSmooth === "number"
