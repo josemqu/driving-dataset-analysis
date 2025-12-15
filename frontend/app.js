@@ -270,6 +270,10 @@ const els = {
   gpsMaWindow: document.getElementById("gpsMaWindow"),
   gpsKalmanSigmaA: document.getElementById("gpsKalmanSigmaA"),
   gpsKalmanSigmaZ: document.getElementById("gpsKalmanSigmaZ"),
+  accelFilter: document.getElementById("accelFilter"),
+  accelMaWindow: document.getElementById("accelMaWindow"),
+  accelKalmanSigmaA: document.getElementById("accelKalmanSigmaA"),
+  accelKalmanSigmaZ: document.getElementById("accelKalmanSigmaZ"),
   tableDrawerToggle: document.getElementById("tableDrawerToggle"),
   tableDrawerBody: document.getElementById("tableDrawerBody"),
   tableFile: document.getElementById("tableFile"),
@@ -415,6 +419,69 @@ function clampOddInt(n, min, max, fallback) {
   if (!Number.isFinite(x)) return fallback;
   const c = clamp(Math.round(x), min, max);
   return c % 2 === 1 ? c : clamp(c + 1, min, max);
+}
+
+function accelFilterSettingsFromUi() {
+  const kind = String(els.accelFilter?.value || "none");
+  const maWindow = clampOddInt(els.accelMaWindow?.value, 1, 301, 9);
+  const sigmaA = clamp(safeNumber(els.accelKalmanSigmaA?.value, 1.5), 0, 50);
+  const sigmaZ = clamp(safeNumber(els.accelKalmanSigmaZ?.value, 6), 0, 100);
+  return { kind, maWindow, sigmaA, sigmaZ };
+}
+
+function applyAccelFilter1D(t, vRaw, settings) {
+  if (!Array.isArray(t) || !Array.isArray(vRaw) || t.length !== vRaw.length)
+    return Array.isArray(vRaw) ? Array.from(vRaw) : [];
+  if (settings.kind === "ma") {
+    return applyMovingAverageCentered(vRaw, settings.maWindow);
+  }
+  if (settings.kind === "kalman") {
+    return kalman1DConstVel(t, vRaw, settings.sigmaA, settings.sigmaZ);
+  }
+  return Array.from(vRaw);
+}
+
+function applyAccelFilterToPanels() {
+  const s = accelFilterSettingsFromUi();
+  for (const p of state.panels) {
+    if (p?.spec?.kind !== "accelerometers") continue;
+    if (!Array.isArray(p.t) || !Array.isArray(p.v) || p.t.length === 0)
+      continue;
+
+    // Preserve raw values
+    p.vRaw =
+      Array.isArray(p.vRaw) && p.vRaw.length === p.v.length
+        ? p.vRaw
+        : Array.from(p.v);
+    const smooth = applyAccelFilter1D(p.t, p.vRaw, s);
+    p.vSmooth = smooth;
+    p.vForCursor = s.kind === "none" ? p.vRaw : p.vSmooth;
+
+    // Dataset 0: raw, dataset 2: smoothed
+    p.chart.data.datasets[0].label = `RAW_ACCELEROMETERS (${p.spec.axis}) raw`;
+    p.chart.data.datasets[0].data = p.t.map((tt, i) => ({
+      x: tt,
+      y: p.vRaw[i],
+    }));
+
+    if (p.chart.data.datasets[2]) {
+      p.chart.data.datasets[2].hidden = s.kind === "none";
+      p.chart.data.datasets[2].label = `RAW_ACCELEROMETERS (${p.spec.axis}) ${
+        s.kind === "kalman" ? "kalman" : "ma"
+      }`;
+      p.chart.data.datasets[2].data = p.t.map((tt, i) => ({
+        x: tt,
+        y: smooth[i],
+      }));
+    }
+
+    p.yMinSmooth = undefined;
+    p.yMaxSmooth = undefined;
+    p.chart.update("none");
+  }
+
+  // Ensure cursor and scales reflect the updated series
+  updateCursor();
 }
 
 function gpsFilterSettingsFromUi() {
@@ -1729,11 +1796,12 @@ async function loadTripData() {
       )}&downsample=${encodeURIComponent(state.downsample)}`;
       const res = await fetch(url);
       if (!res.ok)
-        throw new Error(`Failed to load accelerometers (${p.spec.axis})`);
+        throw new Error(`Failed to load accelerometers axis ${p.spec.axis}`);
       const json = await res.json();
       offsetSeconds = json.offsetSeconds || 0;
       p.t = json.t || [];
       p.v = json.v || [];
+      p.vRaw = Array.from(p.v);
     } else {
       const url = `/api/trips/${encodeURIComponent(
         tripId
@@ -1773,8 +1841,12 @@ async function loadTripData() {
     p.chart.data.datasets[0].label = p.spec.title;
     p.chart.data.datasets[0].data = p.t.map((t, i) => ({ x: t, y: p.v[i] }));
     p.chart.data.datasets[1].data = [];
+    if (p.chart.data.datasets[2]) p.chart.data.datasets[2].data = [];
     p.chart.update();
   }
+
+  // Apply accelerometer smoothing overlays after data is loaded.
+  applyAccelFilterToPanels();
 
   state.offsetSeconds = offsetSeconds;
 
@@ -1865,7 +1937,11 @@ function updateCursor() {
   const w = Math.max(2, state.windowSeconds);
   for (const p of state.panels) {
     if (!p.t || p.t.length === 0) continue;
-    const y = interpolatedY(p.t, p.v, tData);
+    const vForCursor =
+      p.spec.kind === "accelerometers" && Array.isArray(p.vForCursor)
+        ? p.vForCursor
+        : p.v;
+    const y = interpolatedY(p.t, vForCursor, tData);
     if (y == null) continue;
 
     if (p.spec.key === "gps_speed" && p.chart) {
@@ -1899,7 +1975,25 @@ function updateCursor() {
       continue;
     }
 
-    const mm = windowMinMax(p.t, p.v, tData - w / 2, tData + w / 2);
+    let mm = windowMinMax(p.t, p.v, tData - w / 2, tData + w / 2);
+    if (
+      p.spec.kind === "accelerometers" &&
+      Array.isArray(p.vRaw) &&
+      Array.isArray(p.vSmooth) &&
+      p.vRaw.length === p.t.length &&
+      p.vSmooth.length === p.t.length
+    ) {
+      const mmRaw = windowMinMax(p.t, p.vRaw, tData - w / 2, tData + w / 2);
+      const mmSm = windowMinMax(p.t, p.vSmooth, tData - w / 2, tData + w / 2);
+      if (mmRaw && mmSm) {
+        mm = {
+          min: Math.min(mmRaw.min, mmSm.min),
+          max: Math.max(mmRaw.max, mmSm.max),
+        };
+      } else {
+        mm = mmRaw || mmSm || mm;
+      }
+    }
     if (mm) {
       const range = mm.max - mm.min;
       const pad = range * 0.08;
@@ -2096,6 +2190,26 @@ function attachEvents() {
   if (els.gpsKalmanSigmaZ)
     els.gpsKalmanSigmaZ.addEventListener("change", applyGpsFilterAndRedraw);
 
+  const applyAccelFilterAndRedraw = () => {
+    const s = accelFilterSettingsFromUi();
+    savePersistedState({
+      accelFilter: s.kind,
+      accelMaWindow: s.maWindow,
+      accelKalmanSigmaA: s.sigmaA,
+      accelKalmanSigmaZ: s.sigmaZ,
+    });
+    applyAccelFilterToPanels();
+  };
+
+  if (els.accelFilter)
+    els.accelFilter.addEventListener("change", applyAccelFilterAndRedraw);
+  if (els.accelMaWindow)
+    els.accelMaWindow.addEventListener("change", applyAccelFilterAndRedraw);
+  if (els.accelKalmanSigmaA)
+    els.accelKalmanSigmaA.addEventListener("change", applyAccelFilterAndRedraw);
+  if (els.accelKalmanSigmaZ)
+    els.accelKalmanSigmaZ.addEventListener("change", applyAccelFilterAndRedraw);
+
   els.windowSeconds.addEventListener("change", () => {
     state.windowSeconds = Number(els.windowSeconds.value) || 30;
     savePersistedState({ windowSeconds: state.windowSeconds });
@@ -2172,6 +2286,21 @@ async function main() {
       els.gpsKalmanSigmaA.value = String(persisted.gpsKalmanSigmaA);
     if (typeof persisted.gpsKalmanSigmaZ === "number" && els.gpsKalmanSigmaZ)
       els.gpsKalmanSigmaZ.value = String(persisted.gpsKalmanSigmaZ);
+
+    if (typeof persisted.accelFilter === "string" && els.accelFilter)
+      els.accelFilter.value = persisted.accelFilter;
+    if (typeof persisted.accelMaWindow === "number" && els.accelMaWindow)
+      els.accelMaWindow.value = String(persisted.accelMaWindow);
+    if (
+      typeof persisted.accelKalmanSigmaA === "number" &&
+      els.accelKalmanSigmaA
+    )
+      els.accelKalmanSigmaA.value = String(persisted.accelKalmanSigmaA);
+    if (
+      typeof persisted.accelKalmanSigmaZ === "number" &&
+      els.accelKalmanSigmaZ
+    )
+      els.accelKalmanSigmaZ.value = String(persisted.accelKalmanSigmaZ);
 
     if (typeof persisted.tableFile === "string" && els.tableFile)
       els.tableFile.value = persisted.tableFile;
