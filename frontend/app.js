@@ -663,80 +663,6 @@ function applyGpsFilter(gpsRaw, settings) {
   return { t, lat: Array.from(lat), lon: Array.from(lon) };
 }
 
-function recomputeGpsSpeedPanel() {
-  const speedPanel = state.panels.find(
-    (p) => p?.spec?.kind === "computed" && p?.spec?.key === "gps_speed_calc"
-  );
-  if (!speedPanel) return;
-  if (!state.gps || !Array.isArray(state.gps.t) || state.gps.t.length <= 1) {
-    speedPanel.t = [];
-    speedPanel.v = [];
-    speedPanel.yMinSmooth = undefined;
-    speedPanel.yMaxSmooth = undefined;
-    speedPanel.chart.data.datasets[0].label = speedPanel.spec.title;
-    speedPanel.chart.data.datasets[0].data = [];
-    speedPanel.chart.data.datasets[1].data = [];
-    speedPanel.chart.update();
-    return;
-  }
-
-  const tArr = state.gps.t;
-  const outT = [];
-  const outV = [];
-  if (
-    Array.isArray(state.gps.speedKmh) &&
-    state.gps.speedKmh.length === tArr.length
-  ) {
-    for (let i = 0; i < tArr.length; i++) {
-      const ti = tArr[i];
-      const vi = state.gps.speedKmh[i];
-      if (!Number.isFinite(ti) || !Number.isFinite(vi)) continue;
-      outT.push(ti);
-      outV.push(vi);
-    }
-  } else {
-    const latArr = state.gps.lat;
-    const lonArr = state.gps.lon;
-    for (let i = 1; i < tArr.length; i++) {
-      const t0 = tArr[i - 1];
-      const t1 = tArr[i];
-      const la0 = latArr[i - 1];
-      const lo0 = lonArr[i - 1];
-      const la1 = latArr[i];
-      const lo1 = lonArr[i];
-      if (
-        !Number.isFinite(t0) ||
-        !Number.isFinite(t1) ||
-        !Number.isFinite(la0) ||
-        !Number.isFinite(lo0) ||
-        !Number.isFinite(la1) ||
-        !Number.isFinite(lo1)
-      )
-        continue;
-      const dt = t1 - t0;
-      if (!Number.isFinite(dt) || dt <= 0) continue;
-      const d = haversineMeters(la0, lo0, la1, lo1);
-      if (!Number.isFinite(d) || d < 0) continue;
-      const vKmh = (d / dt) * 3.6;
-      outT.push(t1);
-      outV.push(vKmh);
-    }
-  }
-
-  speedPanel.t = outT;
-  speedPanel.v = outV;
-  speedPanel.yMinSmooth = undefined;
-  speedPanel.yMaxSmooth = undefined;
-  speedPanel.chart.data.datasets[0].label = speedPanel.spec.title;
-  speedPanel.chart.data.datasets[0].data = outT.map((t, i) => ({
-    x: t,
-    y: outV[i],
-  }));
-  speedPanel.chart.options.plugins.odometerOverlay.enabled = true;
-  speedPanel.chart.options.plugins.odometerOverlay.max = 160;
-  speedPanel.chart.update();
-}
-
 function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -1434,6 +1360,16 @@ function makeChart(canvasEl, label) {
           pointRadius: 3,
           showLine: false,
         },
+        {
+          label: "Series 2",
+          data: [],
+          borderColor: "#f59e0b",
+          backgroundColor: "rgba(245,158,11,0.10)",
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.15,
+          hidden: true,
+        },
       ],
     },
     options: {
@@ -1550,12 +1486,6 @@ function defaultPanelSpecs() {
       kind: "series",
       file: "RAW_GPS",
       col: 1,
-    },
-    {
-      key: "gps_speed_calc",
-      title: "GPS Speed",
-      subtitle: "Speed (Km/h)",
-      kind: "computed",
     }
   );
 
@@ -1823,6 +1753,23 @@ async function loadTripData() {
       p.v = json.v || [];
     }
 
+    if (p.spec.key === "gps_speed") {
+      let vmax = 0;
+      for (const vv of p.v) {
+        const n = Number(vv);
+        if (!Number.isFinite(n)) continue;
+        if (n > vmax) vmax = n;
+      }
+      p.vMaxGlobal = vmax;
+      // Keep odometer scale aligned with trip max.
+      if (p.chart?.options?.plugins?.odometerOverlay) {
+        p.chart.options.plugins.odometerOverlay.max = Math.max(
+          1,
+          Math.ceil(vmax)
+        );
+      }
+    }
+
     p.chart.data.datasets[0].label = p.spec.title;
     p.chart.data.datasets[0].data = p.t.map((t, i) => ({ x: t, y: p.v[i] }));
     p.chart.data.datasets[1].data = [];
@@ -1870,8 +1817,6 @@ async function loadTripData() {
       state.gps = applyGpsFilter(state.gpsRaw, settings);
       if (state.gps)
         setGpsTrackOnMap(state.gps.t, state.gps.lat, state.gps.lon);
-
-      recomputeGpsSpeedPanel();
     }
   } catch {
     // ignore map failures
@@ -1923,13 +1868,36 @@ function updateCursor() {
     const y = interpolatedY(p.t, p.v, tData);
     if (y == null) continue;
 
-    if (p.spec.key === "gps_speed_calc" && p.chart) {
+    if (p.spec.key === "gps_speed" && p.chart) {
+      // Odometer overlay for RAW_GPS speed.
       p.chart.$odometerValue = y;
+      if (p.chart.options?.plugins?.odometerOverlay) {
+        p.chart.options.plugins.odometerOverlay.enabled = true;
+        const vmax = Number(p.vMaxGlobal);
+        p.chart.options.plugins.odometerOverlay.max = Number.isFinite(vmax)
+          ? Math.max(1, Math.ceil(vmax))
+          : 160;
+      }
+
+      // Fixed Y scale: 0 .. max speed of the trip
+      const vmax = Number(p.vMaxGlobal);
+      const yMax = Number.isFinite(vmax) ? Math.max(1, Math.ceil(vmax)) : 160;
+      p.chart.options.scales.y.min = 0;
+      p.chart.options.scales.y.max = yMax;
+      // Disable window-based auto-scaling for this plot.
+      p.yMinSmooth = undefined;
+      p.yMaxSmooth = undefined;
     }
+
     // Use exact tData for x so the cursor moves smoothly even if sampling is coarse.
     p.chart.data.datasets[1].data = [{ x: tData, y }];
     p.chart.options.scales.x.min = tData - w / 2;
     p.chart.options.scales.x.max = tData + w / 2;
+
+    if (p.spec.key === "gps_speed") {
+      p.chart.update("none");
+      continue;
+    }
 
     const mm = windowMinMax(p.t, p.v, tData - w / 2, tData + w / 2);
     if (mm) {
@@ -1952,12 +1920,6 @@ function updateCursor() {
         // Proximity/distance can't be negative; keep baseline at 0.
         targetMin = 0;
         // Ensure a non-zero range so the chart doesn't collapse when values are flat.
-        if (!Number.isFinite(targetMax) || targetMax <= 0) targetMax = 1;
-      }
-
-      if (p.spec.key === "gps_speed_calc") {
-        // Speed can't be negative; keep baseline at 0.
-        targetMin = 0;
         if (!Number.isFinite(targetMax) || targetMax <= 0) targetMax = 1;
       }
 
@@ -2119,7 +2081,6 @@ function attachEvents() {
     if (!state.gpsRaw) return;
     state.gps = applyGpsFilter(state.gpsRaw, s);
     if (state.gps) setGpsTrackOnMap(state.gps.t, state.gps.lat, state.gps.lon);
-    recomputeGpsSpeedPanel();
     // Refresh cursor-derived elements (marker + computed panels)
     updateCursor();
   };
