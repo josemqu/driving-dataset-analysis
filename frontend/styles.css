@@ -629,6 +629,101 @@ button:hover {
   min-height: 0;
 }
 
+.compareControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compareControls label {
+  font-size: 11px;
+}
+
+.compareMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.comparePickers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.comparePicker {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+}
+
+.comparePickerTitle {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
+  margin-bottom: 8px;
+}
+
+.comparePickerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.compareCheckbox {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  opacity: 0.95;
+}
+
+.comparePickerMeta {
+  margin-top: 8px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.compareBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.compareSummary {
+  min-height: 0;
+}
+
+.compareCharts {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compareCanvasWrap {
+  height: 220px;
+}
+
+.compareError {
+  border: 1px solid rgba(255, 59, 48, 0.35);
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 700px) {
   .metaRow {
     grid-template-columns: 1fr;
@@ -637,6 +732,14 @@ button:hover {
 
   .metaCopy {
     justify-self: start;
+  }
+
+  .comparePickers {
+    grid-template-columns: 1fr;
+  }
+
+  .comparePickerGrid {
+    grid-template-columns: 1fr;
   }
 }
 

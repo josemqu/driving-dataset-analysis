@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UAH DriveSet Compare</title>
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="app compareApp">
+      <header class="header">
+        <a class="tablesBack" href="/">Back</a>
+        <div class="title">UAH DriveSet Compare</div>
+        <div class="compareControls">
+          <label>
+            Downsample
+            <input
+              id="cmpDownsample"
+              type="number"
+              min="1"
+              max="1000"
+              step="1"
+              value="10"
+            />
+          </label>
+          <label>
+            Max points
+            <input
+              id="cmpMaxPoints"
+              type="number"
+              min="500"
+              max="500000"
+              step="500"
+              value="60000"
+            />
+          </label>
+          <button id="cmpRun" type="button">Compare</button>
+        </div>
+      </header>
+
+      <main class="compareMain">
+        <section class="comparePickers">
+          <div class="comparePicker" id="pickerA">
+            <div class="comparePickerTitle">Profile A</div>
+            <div class="comparePickerGrid">
+              <label>
+                Driver
+                <select id="cmpDriverA"></select>
+              </label>
+              <label>
+                Trip
+                <select id="cmpTripA"></select>
+              </label>
+              <label class="compareCheckbox">
+                <input id="cmpAllTripsA" type="checkbox" checked />
+                Use all trips for driver
+              </label>
+            </div>
+            <div class="comparePickerMeta" id="cmpMetaA"></div>
+          </div>
+
+          <div class="comparePicker" id="pickerB">
+            <div class="comparePickerTitle">Profile B</div>
+            <div class="comparePickerGrid">
+              <label>
+                Driver
+                <select id="cmpDriverB"></select>
+              </label>
+              <label>
+                Trip
+                <select id="cmpTripB"></select>
+              </label>
+              <label class="compareCheckbox">
+                <input id="cmpAllTripsB" type="checkbox" checked />
+                Use all trips for driver
+              </label>
+            </div>
+            <div class="comparePickerMeta" id="cmpMetaB"></div>
+          </div>
+        </section>
+
+        <section class="compareBody">
+          <div class="compareSummary" id="cmpSummary"></div>
+
+          <div class="compareCharts">
+            <div class="plot comparePlot">
+              <div class="plotHeader">
+                <div>
+                  <div class="plotTitle">Speed distribution (km/h)</div>
+                  <div class="plotSub">Normalized histogram</div>
+                </div>
+              </div>
+              <div class="plotCanvasWrap compareCanvasWrap">
+                <canvas id="cmpChartSpeed"></canvas>
+              </div>
+            </div>
+
+            <div class="plot comparePlot">
+              <div class="plotHeader">
+                <div>
+                  <div class="plotTitle">Longitudinal acceleration (Gs)</div>
+                  <div class="plotSub">
+                    Normalized histogram (RAW_ACCELEROMETERS x_kf)
+                  </div>
+                </div>
+              </div>
+              <div class="plotCanvasWrap compareCanvasWrap">
+                <canvas id="cmpChartAccelX"></canvas>
+              </div>
+            </div>
+
+            <div class="plot comparePlot">
+              <div class="plotHeader">
+                <div>
+                  <div class="plotTitle">Lateral acceleration (Gs)</div>
+                  <div class="plotSub">
+                    Normalized histogram (RAW_ACCELEROMETERS y_kf)
+                  </div>
+                </div>
+              </div>
+              <div class="plotCanvasWrap compareCanvasWrap">
+                <canvas id="cmpChartAccelY"></canvas>
+              </div>
+            </div>
+
+            <div class="plot comparePlot">
+              <div class="plotHeader">
+                <div>
+                  <div class="plotTitle">Jerk magnitude (Gs/s)</div>
+                  <div class="plotSub">
+                    Approx. d|a|/dt from (x_kf,y_kf,z_kf)
+                  </div>
+                </div>
+              </div>
+              <div class="plotCanvasWrap compareCanvasWrap">
+                <canvas id="cmpChartJerk"></canvas>
+              </div>
+            </div>
+
+            <div class="plot comparePlot">
+              <div class="plotHeader">
+                <div>
+                  <div class="plotTitle">Yaw rate (deg/s)</div>
+                  <div class="plotSub">
+                    Approx. dyaw/dt (RAW_ACCELEROMETERS yaw)
+                  </div>
+                </div>
+              </div>
+              <div class="plotCanvasWrap compareCanvasWrap">
+                <canvas id="cmpChartYawRate"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <div class="compareError" id="cmpError" hidden></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/compare.js?v=2"></script>
+  </body>
+</html>
