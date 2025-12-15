@@ -81,83 +81,90 @@
         </section>
 
         <section class="compareBody">
-          <div class="compareSummary" id="cmpSummary"></div>
-
-          <div class="compareCharts">
-            <div class="plot comparePlot">
-              <div class="plotHeader">
-                <div>
-                  <div class="plotTitle">Speed distribution (km/h)</div>
-                  <div class="plotSub">Normalized histogram</div>
-                </div>
-              </div>
-              <div class="plotCanvasWrap compareCanvasWrap">
-                <canvas id="cmpChartSpeed"></canvas>
-              </div>
+          <div class="compareGrid">
+            <div class="compareLeft">
+              <div class="compareSummary" id="cmpSummary"></div>
+              <div class="compareError" id="cmpError" hidden></div>
             </div>
 
-            <div class="plot comparePlot">
-              <div class="plotHeader">
-                <div>
-                  <div class="plotTitle">Longitudinal acceleration (Gs)</div>
-                  <div class="plotSub">
-                    Normalized histogram (RAW_ACCELEROMETERS x_kf)
+            <div class="compareRight">
+              <div class="compareCharts">
+                <div class="plot comparePlot">
+                  <div class="plotHeader">
+                    <div>
+                      <div class="plotTitle">Speed distribution (km/h)</div>
+                      <div class="plotSub">Normalized histogram</div>
+                    </div>
+                  </div>
+                  <div class="plotCanvasWrap compareCanvasWrap">
+                    <canvas id="cmpChartSpeed"></canvas>
                   </div>
                 </div>
-              </div>
-              <div class="plotCanvasWrap compareCanvasWrap">
-                <canvas id="cmpChartAccelX"></canvas>
-              </div>
-            </div>
 
-            <div class="plot comparePlot">
-              <div class="plotHeader">
-                <div>
-                  <div class="plotTitle">Lateral acceleration (Gs)</div>
-                  <div class="plotSub">
-                    Normalized histogram (RAW_ACCELEROMETERS y_kf)
+                <div class="plot comparePlot">
+                  <div class="plotHeader">
+                    <div>
+                      <div class="plotTitle">
+                        Longitudinal acceleration (Gs)
+                      </div>
+                      <div class="plotSub">
+                        Normalized histogram (RAW_ACCELEROMETERS x_kf)
+                      </div>
+                    </div>
+                  </div>
+                  <div class="plotCanvasWrap compareCanvasWrap">
+                    <canvas id="cmpChartAccelX"></canvas>
                   </div>
                 </div>
-              </div>
-              <div class="plotCanvasWrap compareCanvasWrap">
-                <canvas id="cmpChartAccelY"></canvas>
-              </div>
-            </div>
 
-            <div class="plot comparePlot">
-              <div class="plotHeader">
-                <div>
-                  <div class="plotTitle">Jerk magnitude (Gs/s)</div>
-                  <div class="plotSub">
-                    Approx. d|a|/dt from (x_kf,y_kf,z_kf)
+                <div class="plot comparePlot">
+                  <div class="plotHeader">
+                    <div>
+                      <div class="plotTitle">Lateral acceleration (Gs)</div>
+                      <div class="plotSub">
+                        Normalized histogram (RAW_ACCELEROMETERS y_kf)
+                      </div>
+                    </div>
+                  </div>
+                  <div class="plotCanvasWrap compareCanvasWrap">
+                    <canvas id="cmpChartAccelY"></canvas>
                   </div>
                 </div>
-              </div>
-              <div class="plotCanvasWrap compareCanvasWrap">
-                <canvas id="cmpChartJerk"></canvas>
-              </div>
-            </div>
 
-            <div class="plot comparePlot">
-              <div class="plotHeader">
-                <div>
-                  <div class="plotTitle">Yaw rate (deg/s)</div>
-                  <div class="plotSub">
-                    Approx. dyaw/dt (RAW_ACCELEROMETERS yaw)
+                <div class="plot comparePlot">
+                  <div class="plotHeader">
+                    <div>
+                      <div class="plotTitle">Jerk magnitude (Gs/s)</div>
+                      <div class="plotSub">
+                        Approx. d|a|/dt from (x_kf,y_kf,z_kf)
+                      </div>
+                    </div>
+                  </div>
+                  <div class="plotCanvasWrap compareCanvasWrap">
+                    <canvas id="cmpChartJerk"></canvas>
                   </div>
                 </div>
-              </div>
-              <div class="plotCanvasWrap compareCanvasWrap">
-                <canvas id="cmpChartYawRate"></canvas>
+
+                <div class="plot comparePlot">
+                  <div class="plotHeader">
+                    <div>
+                      <div class="plotTitle">Yaw rate (deg/s)</div>
+                      <div class="plotSub">
+                        Approx. dyaw/dt (RAW_ACCELEROMETERS yaw)
+                      </div>
+                    </div>
+                  </div>
+                  <div class="plotCanvasWrap compareCanvasWrap">
+                    <canvas id="cmpChartYawRate"></canvas>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-
-          <div class="compareError" id="cmpError" hidden></div>
         </section>
       </main>
     </div>
 
-    <script src="/compare.js?v=2"></script>
+    <script src="/compare.js?v=4"></script>
   </body>
 </html>

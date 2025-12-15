@@ -3,6 +3,10 @@ let state = {
   charts: {},
 };
 
+let compareInFlight = false;
+let compareQueued = false;
+let compareDebounceTimer = null;
+
 function byId(id) {
   return state.trips.find((t) => t.id === id) || null;
 }
@@ -340,6 +344,16 @@ function percentile(values, p) {
   return vals[lo] * (1 - w) + vals[hi] * w;
 }
 
+function symmetricRangeAroundZero(a, b, pLow = 0.5, pHigh = 99.5) {
+  const lo = Math.min(percentile(a, pLow), percentile(b, pLow));
+  const hi = Math.max(percentile(a, pHigh), percentile(b, pHigh));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi))
+    return { min: NaN, max: NaN };
+  const maxAbs = Math.max(Math.abs(lo), Math.abs(hi));
+  if (!Number.isFinite(maxAbs) || maxAbs === 0) return { min: -1, max: 1 };
+  return { min: -maxAbs, max: maxAbs };
+}
+
 function computeJerkMagnitude(t, ax, ay, az) {
   const n = Math.min(t.length, ax.length, ay.length, az.length);
   if (n < 3) return [];
@@ -401,13 +415,24 @@ function attachEvents() {
   const e = els();
   e.driverA.addEventListener("change", () => {
     renderTripOptionsForDriver(e.tripA, e.driverA.value, "");
+    scheduleCompare();
   });
   e.driverB.addEventListener("change", () => {
     renderTripOptionsForDriver(e.tripB, e.driverB.value, "");
+    scheduleCompare();
   });
 
+  e.tripA.addEventListener("change", () => scheduleCompare());
+  e.tripB.addEventListener("change", () => scheduleCompare());
+
+  e.allTripsA.addEventListener("change", () => scheduleCompare());
+  e.allTripsB.addEventListener("change", () => scheduleCompare());
+
+  e.downsample.addEventListener("change", () => scheduleCompare());
+  e.maxPoints.addEventListener("change", () => scheduleCompare());
+
   e.run.addEventListener("click", () => {
-    runCompare().catch((err) => {
+    triggerCompare().catch((err) => {
       setError(String(err?.message || err));
     });
   });
@@ -418,6 +443,35 @@ function setPickerMeta(kind, tripIds) {
   const metaEl = kind === "A" ? e.metaA : e.metaB;
   const driver = kind === "A" ? e.driverA.value : e.driverB.value;
   metaEl.textContent = `${driver} · ${tripIds.length} trip(s)`;
+}
+
+async function triggerCompare() {
+  if (compareInFlight) {
+    compareQueued = true;
+    return;
+  }
+
+  compareInFlight = true;
+  try {
+    await runCompare();
+  } finally {
+    compareInFlight = false;
+    if (compareQueued) {
+      compareQueued = false;
+      // Run again immediately to reflect the latest UI state.
+      triggerCompare();
+    }
+  }
+}
+
+function scheduleCompare(delayMs = 250) {
+  if (compareDebounceTimer) window.clearTimeout(compareDebounceTimer);
+  compareDebounceTimer = window.setTimeout(() => {
+    compareDebounceTimer = null;
+    triggerCompare().catch((err) => {
+      setError(String(err?.message || err));
+    });
+  }, delayMs);
 }
 
 async function runCompare() {
@@ -584,21 +638,19 @@ async function runCompare() {
   diag.ayA = ayValsA.length;
   diag.ayB = ayValsB.length;
 
-  const axMin = Math.min(percentile(axValsA, 0.5), percentile(axValsB, 0.5));
-  const axMax = Math.max(percentile(axValsA, 99.5), percentile(axValsB, 99.5));
-  const ayMin = Math.min(percentile(ayValsA, 0.5), percentile(ayValsB, 0.5));
-  const ayMax = Math.max(percentile(ayValsA, 99.5), percentile(ayValsB, 99.5));
+  const axRange = symmetricRangeAroundZero(axValsA, axValsB, 0.5, 99.5);
+  const ayRange = symmetricRangeAroundZero(ayValsA, ayValsB, 0.5, 99.5);
 
   setChart(
     state.charts.ax,
-    histogramDensity(axValsA, 70, axMin, axMax),
-    histogramDensity(axValsB, 70, axMin, axMax)
+    histogramDensity(axValsA, 70, axRange.min, axRange.max),
+    histogramDensity(axValsB, 70, axRange.min, axRange.max)
   );
 
   setChart(
     state.charts.ay,
-    histogramDensity(ayValsA, 70, ayMin, ayMax),
-    histogramDensity(ayValsB, 70, ayMin, ayMax)
+    histogramDensity(ayValsA, 70, ayRange.min, ayRange.max),
+    histogramDensity(ayValsB, 70, ayRange.min, ayRange.max)
   );
 
   const jerkValsA = [];
@@ -631,19 +683,12 @@ async function runCompare() {
 
   diag.jerkB = jerkValsB.length;
 
-  const jerkMin = Math.min(
-    percentile(jerkValsA, 0.5),
-    percentile(jerkValsB, 0.5)
-  );
-  const jerkMax = Math.max(
-    percentile(jerkValsA, 99.5),
-    percentile(jerkValsB, 99.5)
-  );
+  const jerkRange = symmetricRangeAroundZero(jerkValsA, jerkValsB, 0.5, 99.5);
 
   setChart(
     state.charts.jerk,
-    histogramDensity(jerkValsA, 80, jerkMin, jerkMax),
-    histogramDensity(jerkValsB, 80, jerkMin, jerkMax)
+    histogramDensity(jerkValsA, 80, jerkRange.min, jerkRange.max),
+    histogramDensity(jerkValsB, 80, jerkRange.min, jerkRange.max)
   );
 
   const yawRateValsA = [];
@@ -664,19 +709,17 @@ async function runCompare() {
 
   diag.yawRateB = yawRateValsB.length;
 
-  const yawMin = Math.min(
-    percentile(yawRateValsA, 0.5),
-    percentile(yawRateValsB, 0.5)
-  );
-  const yawMax = Math.max(
-    percentile(yawRateValsA, 99.5),
-    percentile(yawRateValsB, 99.5)
+  const yawRange = symmetricRangeAroundZero(
+    yawRateValsA,
+    yawRateValsB,
+    0.5,
+    99.5
   );
 
   setChart(
     state.charts.yawRate,
-    histogramDensity(yawRateValsA, 80, yawMin, yawMax),
-    histogramDensity(yawRateValsB, 80, yawMin, yawMax)
+    histogramDensity(yawRateValsA, 80, yawRange.min, yawRange.max),
+    histogramDensity(yawRateValsB, 80, yawRange.min, yawRange.max)
   );
 
   const msA = meanStd(speedValsA);
@@ -731,6 +774,7 @@ async function main() {
   syncPickers();
   attachEvents();
   ensureCharts();
+  scheduleCompare(0);
 }
 
 main().catch((err) => {
