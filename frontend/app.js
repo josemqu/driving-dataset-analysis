@@ -10,6 +10,56 @@ let state = {
   events: [],
 };
 
+function parseQuery() {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const tripId = sp.get("tripId") || "";
+    const tDataRaw = sp.get("tData");
+    const videoTimeRaw = sp.get("videoTime");
+    const leadRaw = sp.get("lead");
+    const tData = tDataRaw != null ? Number(tDataRaw) : null;
+    const videoTime = videoTimeRaw != null ? Number(videoTimeRaw) : null;
+    const lead = leadRaw != null ? Number(leadRaw) : null;
+    return {
+      tripId,
+      tData: Number.isFinite(tData) ? tData : null,
+      videoTime: Number.isFinite(videoTime) ? videoTime : null,
+      lead: Number.isFinite(lead) ? lead : null,
+    };
+  } catch {
+    return { tripId: "", tData: null, videoTime: null, lead: null };
+  }
+}
+
+function seekVideoToRequestedTime(query) {
+  if (!els.video) return;
+  if (!query) return;
+
+  const lead = Math.max(0, safeNumber(query.lead, 2));
+
+  // If a data-time is provided, convert to video time using the sync rule.
+  let target = null;
+  if (typeof query.tData === "number") {
+    target = query.tData + state.offsetSeconds;
+  } else if (typeof query.videoTime === "number") {
+    target = query.videoTime;
+  }
+  if (target == null) return;
+
+  const t = Math.max(0, target - lead);
+  const applyTime = () => {
+    try {
+      els.video.currentTime = t;
+    } catch {
+      // ignore
+    }
+    updateCursor();
+  };
+
+  if (els.video.readyState >= 1) applyTime();
+  else els.video.addEventListener("loadedmetadata", applyTime, { once: true });
+}
+
 const STORAGE_KEY = "uah_driveset_web_viewer_state_v1";
 
 const PANELS_ORDER_KEY = "panelsOrder";
@@ -2332,6 +2382,8 @@ function attachEvents() {
 async function main() {
   attachEvents();
 
+  const query = parseQuery();
+
   // Restore persisted values into inputs before initial load
   const persisted = loadPersistedState();
   if (persisted) {
@@ -2380,7 +2432,22 @@ async function main() {
   }
 
   await loadTrips();
+
+  // Allow deep-linking to a specific trip from URL.
+  if (query.tripId && byId(query.tripId)) {
+    const driver = driverFromTripId(query.tripId);
+    if (driver && els.driverSelect && els.driverSelect.value !== driver) {
+      els.driverSelect.value = driver;
+      renderTripOptionsForDriver(driver, query.tripId);
+    }
+    if (els.tripSelect) {
+      els.tripSelect.value = query.tripId;
+      savePersistedState({ driver, tripId: query.tripId, videoTime: 0 });
+    }
+  }
+
   await loadTripData();
+  seekVideoToRequestedTime(query);
 
   // If the video is already playing when the page loads, start the loop.
   if (!els.video.paused) startSmoothLoop();

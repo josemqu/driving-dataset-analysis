@@ -737,6 +737,14 @@ button:hover {
   background: rgba(110, 168, 254, 0.08);
 }
 
+.icmEvidenceTimeCell {
+  cursor: pointer;
+}
+
+.icmEvidenceTimeCell:hover {
+  background: rgba(110, 168, 254, 0.08);
+}
+
 .icmEvidence {
   background: rgba(0, 0, 0, 0.08);
   display: flex;

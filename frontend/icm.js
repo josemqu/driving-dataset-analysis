@@ -24,6 +24,19 @@ let state = {
   evidenceOnlyEvents: false,
 };
 
+function openMainViewerAt(tripId, tDataSeconds) {
+  const tid = String(tripId || "");
+  const t = Number(tDataSeconds);
+  if (!tid) return;
+  if (!Number.isFinite(t)) return;
+
+  const leadSeconds = 2;
+  const url = `/?tripId=${encodeURIComponent(tid)}&tData=${encodeURIComponent(
+    t.toFixed(6)
+  )}&lead=${encodeURIComponent(String(leadSeconds))}`;
+  window.open(url, "_blank", "noopener");
+}
+
 const ICM_SIDEBAR_WIDTH_KEY = "uah_icm_sidebar_width_px_v1";
 const ICM_EVIDENCE_HEIGHT_KEY = "uah_icm_evidence_height_px_v1";
 
@@ -307,7 +320,19 @@ function renderEvidenceTable(columns, rows) {
           const v = cells[i];
           const n = Number(v);
           const s = Number.isFinite(n) ? n.toFixed(6) : String(v ?? "");
-          return `<td><code>${escapeHtml(s)}</code></td>`;
+          const isTimeCol = i === 0;
+          const cls =
+            isTimeCol && Number.isFinite(n) ? "icmEvidenceTimeCell" : "";
+          const tAttr =
+            isTimeCol && Number.isFinite(n) ? ` data-t="${escapeHtml(s)}"` : "";
+          const title =
+            isTimeCol && Number.isFinite(n)
+              ? "Click to open main viewer at this time"
+              : "";
+          const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+          return `<td class="${cls}"${tAttr}${titleAttr}><code>${escapeHtml(
+            s
+          )}</code></td>`;
         })
         .join("")}</tr>`;
     })
@@ -331,6 +356,17 @@ function renderEvidenceFromState() {
     : rows;
 
   els.evidenceWrap.innerHTML = renderEvidenceTable(columns, filtered);
+
+  // Wire up clicks on the time column to open the main viewer at that timestamp.
+  // Evidence tables always use the first column as "t".
+  const tid = state.selectedEvidence?.tripId;
+  if (!tid) return;
+  els.evidenceWrap.querySelectorAll("td.icmEvidenceTimeCell").forEach((td) => {
+    td.addEventListener("click", () => {
+      const t = td.getAttribute("data-t");
+      openMainViewerAt(tid, t);
+    });
+  });
 }
 
 function renderEvidenceHeader(kind, tripId) {
