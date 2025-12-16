@@ -1398,6 +1398,8 @@ const eventsOverlayPlugin = {
     const ctx = chart.ctx;
     if (!ctx) return;
 
+    const showLabels = Boolean(cfg.showLabels);
+
     const events = Array.isArray(cfg.events) ? cfg.events : [];
     if (events.length === 0) return;
 
@@ -1486,6 +1488,8 @@ const eventsOverlayPlugin = {
       ctx.stroke();
       ctx.restore();
 
+      if (!showLabels) continue;
+
       const raw = String(e?.label ?? "");
       const short =
         raw.length > labelLen
@@ -1536,7 +1540,7 @@ function makeChart(canvasEl, label) {
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
   };
 
-  return new Chart(canvasEl, {
+  return new Chart(canvasEl.getContext("2d"), {
     type: "line",
     data: {
       datasets: [
@@ -1623,6 +1627,7 @@ function makeChart(canvasEl, label) {
           enabled: true,
           events: [],
           maxLabels: 12,
+          showLabels: false,
           labelMaxLen: 28,
         },
         legend: { display: false },
