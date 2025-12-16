@@ -214,31 +214,39 @@ def get_trip_evidence(
 
     k = kind.strip().lower()
 
-    # Load common series needed for evidence
-    try:
-        gps = get_gps_track(trip, downsample=1)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    t = gps.t
-    speed = gps.speed
-    n = int(t.shape[0])
-    if n > max_rows:
-        t = t[:max_rows]
-        speed = speed[:max_rows]
-        n = max_rows
+    def _clip(arr: np.ndarray) -> np.ndarray:
+        if arr.shape[0] <= max_rows:
+            return arr
+        return arr[:max_rows]
 
     def _rows(
-        columns: list[str], data_cols: list[list[float]], mask: list[bool]
+        t_: np.ndarray,
+        columns: list[str],
+        data_cols: list[np.ndarray],
+        mask: np.ndarray,
     ) -> dict:
+        t_ = _clip(np.asarray(t_, dtype=float))
+        data_cols = [_clip(np.asarray(c, dtype=float)) for c in data_cols]
+        mask = _clip(np.asarray(mask, dtype=bool))
+        n = int(min([t_.shape[0], mask.shape[0], *[c.shape[0] for c in data_cols]]))
+
         rows = []
         for i in range(n):
             rows.append(
-                [float(t[i]), *[float(col[i]) for col in data_cols], bool(mask[i])]
+                [float(t_[i]), *[float(col[i]) for col in data_cols], bool(mask[i])]
             )
         return {"columns": columns + ["isEvent"], "rows": rows}
 
     if k == "speeding":
+        # Load GPS only for speeding evidence
+        try:
+            gps = get_gps_track(trip, downsample=1)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+        t = _clip(np.asarray(gps.t, dtype=float))
+        speed = _clip(np.asarray(gps.speed, dtype=float))
+
         # Use OSM speed limit if aligned; else default.
         speed_limit = None
         try:
@@ -258,20 +266,19 @@ def get_trip_evidence(
                 gps.speed, float(default_speed_limit_kmh), dtype=float
             )
 
-        speed_limit = speed_limit[:n]
+        speed_limit = _clip(np.asarray(speed_limit, dtype=float))
         limit = np.where(
             np.isfinite(speed_limit) & (speed_limit > 0),
             speed_limit,
             float(default_speed_limit_kmh),
         )
-        mask = (np.isfinite(speed[:n])) & (
-            speed[:n] > (limit + float(speed_margin_kmh))
-        )
+        mask = (np.isfinite(speed)) & (speed > (limit + float(speed_margin_kmh)))
 
         payload = _rows(
+            t,
             ["t", "speedKmh", "limitKmh"],
-            [speed[:n].astype(float).tolist(), limit.astype(float).tolist()],
-            mask.astype(bool).tolist(),
+            [speed, limit],
+            mask,
         )
         return {
             "tripId": trip.id,
@@ -286,16 +293,18 @@ def get_trip_evidence(
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
 
-        ax_v = ax.v[:n]
+        ax_t = np.asarray(ax.t, dtype=float)
+        ax_v = np.asarray(ax.v, dtype=float)
         if k == "harsh_accel":
             mask = np.isfinite(ax_v) & (ax_v >= float(accel_threshold_g))
         else:
             mask = np.isfinite(ax_v) & (ax_v <= -float(brake_threshold_g))
 
         payload = _rows(
+            ax_t,
             ["t", "axG"],
-            [ax_v.astype(float).tolist()],
-            mask.astype(bool).tolist(),
+            [ax_v],
+            mask,
         )
         return {
             "tripId": trip.id,
@@ -310,24 +319,27 @@ def get_trip_evidence(
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
 
-        yaw_v = yaw.v[:n]
+        yaw_t = np.asarray(yaw.t, dtype=float)
+        yaw_v = np.asarray(yaw.v, dtype=float)
+
         # Approx dyaw/dt on same sample index (yaw_rate at i uses i-1->i)
-        if n >= 2:
+        if yaw_t.shape[0] >= 2:
             dy = np.diff(yaw_v)
-            dt_y = np.diff(t[:n])
+            dt_y = np.diff(yaw_t)
             dt_y = np.where(dt_y > 0, dt_y, np.nan)
             yaw_rate = np.r_[np.nan, dy / dt_y]
         else:
-            yaw_rate = np.full((n,), np.nan)
+            yaw_rate = np.full((yaw_t.shape[0],), np.nan)
 
         mask = np.isfinite(yaw_rate) & (
             np.abs(yaw_rate) >= float(yaw_rate_threshold_dps)
         )
 
         payload = _rows(
+            yaw_t,
             ["t", "yawDeg", "yawRateDegPerS"],
-            [yaw_v.astype(float).tolist(), yaw_rate.astype(float).tolist()],
-            mask.astype(bool).tolist(),
+            [yaw_v, yaw_rate],
+            mask,
         )
         return {
             "tripId": trip.id,
