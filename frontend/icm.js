@@ -9,6 +9,8 @@ const els = {
   evidence: document.getElementById("icmEvidence"),
   evidenceHeader: document.getElementById("icmEvidenceHeader"),
   evidenceWrap: document.getElementById("icmEvidenceWrap"),
+  hSplitter: document.getElementById("icmHSplitter"),
+  detail: document.getElementById("icmDetail"),
   main: document.getElementById("icmMain"),
   splitter: document.getElementById("icmSplitter"),
 };
@@ -17,12 +19,56 @@ let state = {
   drivers: [],
   selectedDriverId: "",
   selectedEvidence: null,
+  evidenceData: null,
+  evidenceOnlyEvents: false,
 };
 
 const ICM_SIDEBAR_WIDTH_KEY = "uah_icm_sidebar_width_px_v1";
+const ICM_EVIDENCE_HEIGHT_KEY = "uah_icm_evidence_height_px_v1";
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+
+function applyEvidenceHeightPx(px) {
+  const detail = els.detail;
+  if (!detail) return;
+  // evidence block height
+  const h = clamp(Math.floor(safeNumber(px, 240)), 140, 700);
+  // header + trips + splitter + evidence
+  detail.style.gridTemplateRows = `auto 1fr auto ${h}px`;
+  try {
+    window.localStorage.setItem(ICM_EVIDENCE_HEIGHT_KEY, String(h));
+  } catch {
+    // ignore
+  }
+}
+
+function restoreEvidenceHeight() {
+  try {
+    const raw = window.localStorage.getItem(ICM_EVIDENCE_HEIGHT_KEY);
+    if (!raw) return;
+    const h = safeNumber(raw, null);
+    if (h == null) return;
+    applyEvidenceHeightPx(h);
+  } catch {
+    // ignore
+  }
+}
+
+function showEvidenceUi() {
+  if (els.hSplitter) els.hSplitter.hidden = false;
+  if (els.evidence) els.evidence.hidden = false;
+  restoreEvidenceHeight();
+  // If no persisted height, set a reasonable default once.
+  if (els.detail && !els.detail.style.gridTemplateRows) {
+    applyEvidenceHeightPx(280);
+  }
+}
+
+function hideEvidenceUi() {
+  if (els.hSplitter) els.hSplitter.hidden = true;
+  if (els.evidence) els.evidence.hidden = true;
 }
 
 function applySidebarWidthPx(px) {
@@ -140,9 +186,68 @@ function renderError(err) {
 
 function hideEvidence() {
   state.selectedEvidence = null;
-  if (els.evidence) els.evidence.hidden = true;
+  state.evidenceData = null;
+  state.evidenceOnlyEvents = false;
+  hideEvidenceUi();
   if (els.evidenceHeader) els.evidenceHeader.innerHTML = "";
   if (els.evidenceWrap) els.evidenceWrap.innerHTML = "";
+}
+
+function attachHorizontalSplitter() {
+  const detail = els.detail;
+  const splitter = els.hSplitter;
+  if (!detail || !splitter) return;
+
+  let dragging = false;
+  let activePointerId = null;
+
+  const onMove = (clientY) => {
+    const rect = detail.getBoundingClientRect();
+    // compute evidence height based on cursor position from bottom
+    const h = rect.bottom - clientY;
+    applyEvidenceHeightPx(h);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragging) return;
+    onMove(e.clientY);
+  };
+
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    try {
+      splitter.releasePointerCapture?.(activePointerId);
+    } catch {
+      // ignore
+    }
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", stop);
+  };
+
+  splitter.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    activePointerId = e.pointerId;
+    try {
+      splitter.setPointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+    onMove(e.clientY);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stop);
+  });
+
+  splitter.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 30 : 10;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const computed = window.getComputedStyle(detail);
+    const rows = (computed.gridTemplateRows || "").split(" ");
+    const current = safeNumber(rows[3]?.replace("px", ""), 280);
+    const next = e.key === "ArrowUp" ? current + step : current - step;
+    applyEvidenceHeightPx(next);
+  });
 }
 
 function evidenceKindFromColumnIndex(colIndex) {
@@ -194,7 +299,9 @@ function renderEvidenceTable(columns, rows) {
     .map((row) => {
       const cells = Array.isArray(row) ? row : [];
       const isEvent = Boolean(cells[cells.length - 1]);
-      return `<tr class="${isEvent ? "icmEvidenceEvent" : ""}">${cols
+      return `<tr class="${
+        isEvent ? "icmEvidenceEvent" : "icmEvidenceNonEvent"
+      }">${cols
         .map((_, i) => {
           const v = cells[i];
           const n = Number(v);
@@ -206,6 +313,53 @@ function renderEvidenceTable(columns, rows) {
     .join("")}</tbody>`;
 
   return `<table class="dataTable">${thead}${tbody}</table>`;
+}
+
+function renderEvidenceFromState() {
+  if (!els.evidenceWrap) return;
+  const data = state.evidenceData;
+  if (!data) {
+    els.evidenceWrap.innerHTML = "";
+    return;
+  }
+
+  const columns = Array.isArray(data.columns) ? data.columns : [];
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  const filtered = state.evidenceOnlyEvents
+    ? rows.filter((r) => Array.isArray(r) && Boolean(r[r.length - 1]))
+    : rows;
+
+  els.evidenceWrap.innerHTML = renderEvidenceTable(columns, filtered);
+}
+
+function renderEvidenceHeader(kind, tripId) {
+  if (!els.evidenceHeader) return;
+
+  const checked = state.evidenceOnlyEvents ? "checked" : "";
+  els.evidenceHeader.innerHTML = `
+    <div class="icmEvidenceHeaderLeft">
+      <div class="icmEvidenceTitle"><code>${escapeHtml(
+        evidenceTitle(kind)
+      )}</code></div>
+      <div class="icmEvidenceMeta"><code>${escapeHtml(
+        tripLabelFromTripId(tripId)
+      )}</code></div>
+    </div>
+    <div class="icmEvidenceHeaderRight">
+      <label class="icmEvidenceToggle">
+        <input id="icmEvidenceOnlyEvents" type="checkbox" ${checked} />
+        Only events
+      </label>
+    </div>
+  `;
+
+  const cb = document.getElementById("icmEvidenceOnlyEvents");
+  if (cb) {
+    cb.addEventListener("change", () => {
+      state.evidenceOnlyEvents = Boolean(cb.checked);
+      renderEvidenceFromState();
+    });
+  }
 }
 
 function tripLabelFromTripId(tripId) {
@@ -402,27 +556,20 @@ function renderDriverDetail(drivers, driverId) {
 
       state.selectedEvidence = { tripId, kind };
 
-      if (els.evidence) els.evidence.hidden = false;
-      if (els.evidenceHeader) {
-        els.evidenceHeader.innerHTML = `
-          <div class="icmEvidenceTitle"><code>${escapeHtml(
-            evidenceTitle(kind)
-          )}</code></div>
-          <div class="icmEvidenceMeta"><code>${escapeHtml(
-            tripLabelFromTripId(tripId)
-          )}</code></div>
-        `;
-      }
+      showEvidenceUi();
+      renderEvidenceHeader(kind, tripId);
       if (els.evidenceWrap)
         els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>Loading...</code></div>`;
 
       try {
         const json = await loadEvidence(tripId, kind);
-        const columns = json.columns || [];
-        const rows = json.rows || [];
-        if (els.evidenceWrap)
-          els.evidenceWrap.innerHTML = renderEvidenceTable(columns, rows);
+        state.evidenceData = {
+          columns: json.columns || [],
+          rows: json.rows || [],
+        };
+        renderEvidenceFromState();
       } catch (e) {
+        state.evidenceData = null;
         if (els.evidenceWrap)
           els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>${escapeHtml(
             e instanceof Error ? e.message : String(e)
@@ -456,6 +603,7 @@ async function loadIcm() {
 async function main() {
   restoreSidebarWidth();
   attachSplitter();
+  attachHorizontalSplitter();
   try {
     await loadIcm();
   } catch (e) {
