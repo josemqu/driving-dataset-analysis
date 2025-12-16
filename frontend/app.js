@@ -1538,6 +1538,12 @@ const eventsOverlayPlugin = {
       if (!Number.isFinite(x)) continue;
       if (x < ca.left - 1 || x > ca.right + 1) continue;
 
+      // Speeding ranges are rendered as shaded bands. Avoid drawing a start line
+      // for them, so the overlay is just the translucent range.
+      const dur = Number(e?.durationSeconds);
+      const type = eventTypeFromSource(e?.source);
+      if (type === "speeding" && Number.isFinite(dur) && dur > 0) continue;
+
       const st = stylesForEvent(e);
       const lineStroke = st.lineStroke;
 
