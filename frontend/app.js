@@ -505,7 +505,7 @@ function renderTable(columns, rows, meta) {
   }
 
   const displayCols = addVideoTimeCol
-    ? [cols[0], "t_video", ...cols.slice(1)]
+    ? [cols[0], "t_data", ...cols.slice(1)]
     : cols;
 
   const thead = `<thead><tr>${displayCols
@@ -531,8 +531,8 @@ function renderTable(columns, rows, meta) {
       return `<tr>${displayCols
         .map((c, j) => {
           let v;
-          if (j === 0) v = cells[0];
-          else if (j === 1) v = tVideo;
+          if (j === 0) v = tVideo;
+          else if (j === 1) v = cells[0];
           else v = cells[j - 1];
           const s = Number.isFinite(v) ? Number(v).toFixed(6) : String(v ?? "");
           return `<td><code>${escapeHtml(s)}</code></td>`;
