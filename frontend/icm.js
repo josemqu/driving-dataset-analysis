@@ -60,11 +60,8 @@ function restoreEvidenceHeight() {
 function showEvidenceUi() {
   if (els.hSplitter) els.hSplitter.hidden = false;
   if (els.evidence) els.evidence.hidden = false;
+  // Only apply a fixed height if the user previously resized the splitter.
   restoreEvidenceHeight();
-  // If no persisted height, set a reasonable default once.
-  if (els.detail && !els.detail.style.gridTemplateRows) {
-    applyEvidenceHeightPx(280);
-  }
 }
 
 function hideEvidenceUi() {
@@ -344,8 +341,10 @@ function renderEvidenceHeader(kind, tripId) {
   const statsText = st
     ? `samples=${escapeHtml(
         String(st.totalSamples ?? "")
-      )} · events=${escapeHtml(
-        String(st.eventSamples ?? "")
+      )} · eventEdges=${escapeHtml(
+        String(st.eventEdges ?? "")
+      )} · exceedSamples=${escapeHtml(
+        String(st.exceedSamples ?? "")
       )} · all rows loaded`
     : "";
   els.evidenceHeader.innerHTML = `

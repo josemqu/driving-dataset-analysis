@@ -325,9 +325,12 @@ def get_trip_evidence(
         ax_t = np.asarray(ax.t, dtype=float)
         ax_v = np.asarray(ax.v, dtype=float)
         if k == "harsh_accel":
-            mask = np.isfinite(ax_v) & (ax_v >= float(accel_threshold_g))
+            exceed = np.isfinite(ax_v) & (ax_v >= float(accel_threshold_g))
         else:
-            mask = np.isfinite(ax_v) & (ax_v <= -float(brake_threshold_g))
+            exceed = np.isfinite(ax_v) & (ax_v <= -float(brake_threshold_g))
+
+        # Mark only event starts (rising edges) to match ICM event counting.
+        mask = exceed & np.logical_not(np.r_[False, exceed[:-1]])
 
         payload = _rows(
             ax_t,
@@ -341,7 +344,8 @@ def get_trip_evidence(
             "offsetSeconds": trip.offset_seconds,
             "stats": {
                 "totalSamples": int(mask.shape[0]),
-                "eventSamples": int(np.sum(mask.astype(int))),
+                "exceedSamples": int(np.sum(exceed.astype(int))),
+                "eventEdges": int(np.sum(mask.astype(int))),
                 "onlyEvents": bool(only_events),
                 "maxRows": int(max_rows),
                 "thresholdG": float(
@@ -370,9 +374,12 @@ def get_trip_evidence(
         else:
             yaw_rate = np.full((yaw_t.shape[0],), np.nan)
 
-        mask = np.isfinite(yaw_rate) & (
+        exceed = np.isfinite(yaw_rate) & (
             np.abs(yaw_rate) >= float(yaw_rate_threshold_dps)
         )
+
+        # Mark only event starts (rising edges) to match ICM event counting.
+        mask = exceed & np.logical_not(np.r_[False, exceed[:-1]])
 
         payload = _rows(
             yaw_t,
@@ -386,7 +393,8 @@ def get_trip_evidence(
             "offsetSeconds": trip.offset_seconds,
             "stats": {
                 "totalSamples": int(mask.shape[0]),
-                "eventSamples": int(np.sum(mask.astype(int))),
+                "exceedSamples": int(np.sum(exceed.astype(int))),
+                "eventEdges": int(np.sum(mask.astype(int))),
                 "onlyEvents": bool(only_events),
                 "maxRows": int(max_rows),
                 "thresholdDegPerS": float(yaw_rate_threshold_dps),

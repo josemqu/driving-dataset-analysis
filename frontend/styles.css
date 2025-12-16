@@ -634,7 +634,7 @@ button:hover {
 
 .icmDetail {
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: auto 1fr auto minmax(160px, 1fr);
   overflow: hidden;
 }
 
@@ -739,6 +739,9 @@ button:hover {
 
 .icmEvidence {
   background: rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .icmEvidenceHeader {
@@ -776,7 +779,8 @@ button:hover {
 .icmEvidenceWrap {
   padding: 0 10px 10px 10px;
   overflow: auto;
-  max-height: 360px;
+  flex: 1;
+  min-height: 0;
 }
 
 .icmEvidenceWrap .dataTable th,
