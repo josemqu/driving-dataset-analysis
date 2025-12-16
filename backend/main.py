@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -193,6 +194,149 @@ def get_trip_events(
         "filePrefix": filePrefix,
         "events": events,
     }
+
+
+@app.get("/api/trips/{trip_id}/evidence")
+def get_trip_evidence(
+    trip_id: str,
+    kind: str = Query(..., min_length=1),
+    speed_margin_kmh: float = Query(default=5.0, ge=0.0, le=50.0),
+    accel_threshold_g: float = Query(default=0.25, ge=0.0, le=5.0),
+    brake_threshold_g: float = Query(default=0.35, ge=0.0, le=5.0),
+    yaw_rate_threshold_dps: float = Query(default=18.0, ge=0.0, le=500.0),
+    default_speed_limit_kmh: float = Query(default=120.0, ge=10.0, le=200.0),
+    max_rows: int = Query(default=2500, ge=100, le=20000),
+) -> dict:
+    idx = trip_index()
+    trip = idx.by_id.get(trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    k = kind.strip().lower()
+
+    # Load common series needed for evidence
+    try:
+        gps = get_gps_track(trip, downsample=1)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    t = gps.t
+    speed = gps.speed
+    n = int(t.shape[0])
+    if n > max_rows:
+        t = t[:max_rows]
+        speed = speed[:max_rows]
+        n = max_rows
+
+    def _rows(
+        columns: list[str], data_cols: list[list[float]], mask: list[bool]
+    ) -> dict:
+        rows = []
+        for i in range(n):
+            rows.append(
+                [float(t[i]), *[float(col[i]) for col in data_cols], bool(mask[i])]
+            )
+        return {"columns": columns + ["isEvent"], "rows": rows}
+
+    if k == "speeding":
+        # Use OSM speed limit if aligned; else default.
+        speed_limit = None
+        try:
+            sl = get_series(trip, file_stem="PROC_OPENSTREETMAP_DATA", col=1)
+            rl = get_series(trip, file_stem="PROC_OPENSTREETMAP_DATA", col=2)
+            if sl.v.shape[0] == gps.speed.shape[0]:
+                limit = sl.v.astype(float)
+                if rl.v.shape[0] == limit.shape[0]:
+                    good = (rl.v.astype(float) > 0) & (np.isfinite(rl.v.astype(float)))
+                    limit = np.where(good, limit, np.nan)
+                speed_limit = limit
+        except (FileNotFoundError, ValueError):
+            speed_limit = None
+
+        if speed_limit is None:
+            speed_limit = np.full_like(
+                gps.speed, float(default_speed_limit_kmh), dtype=float
+            )
+
+        speed_limit = speed_limit[:n]
+        limit = np.where(
+            np.isfinite(speed_limit) & (speed_limit > 0),
+            speed_limit,
+            float(default_speed_limit_kmh),
+        )
+        mask = (np.isfinite(speed[:n])) & (
+            speed[:n] > (limit + float(speed_margin_kmh))
+        )
+
+        payload = _rows(
+            ["t", "speedKmh", "limitKmh"],
+            [speed[:n].astype(float).tolist(), limit.astype(float).tolist()],
+            mask.astype(bool).tolist(),
+        )
+        return {
+            "tripId": trip.id,
+            "kind": "speeding",
+            "offsetSeconds": trip.offset_seconds,
+            **payload,
+        }
+
+    if k in ("harsh_accel", "harsh_brake"):
+        try:
+            ax = get_accelerometers(trip, axis="x_kf", downsample=1)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+        ax_v = ax.v[:n]
+        if k == "harsh_accel":
+            mask = np.isfinite(ax_v) & (ax_v >= float(accel_threshold_g))
+        else:
+            mask = np.isfinite(ax_v) & (ax_v <= -float(brake_threshold_g))
+
+        payload = _rows(
+            ["t", "axG"],
+            [ax_v.astype(float).tolist()],
+            mask.astype(bool).tolist(),
+        )
+        return {
+            "tripId": trip.id,
+            "kind": k,
+            "offsetSeconds": trip.offset_seconds,
+            **payload,
+        }
+
+    if k == "harsh_turns":
+        try:
+            yaw = get_accelerometers(trip, axis="yaw", downsample=1)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+        yaw_v = yaw.v[:n]
+        # Approx dyaw/dt on same sample index (yaw_rate at i uses i-1->i)
+        if n >= 2:
+            dy = np.diff(yaw_v)
+            dt_y = np.diff(t[:n])
+            dt_y = np.where(dt_y > 0, dt_y, np.nan)
+            yaw_rate = np.r_[np.nan, dy / dt_y]
+        else:
+            yaw_rate = np.full((n,), np.nan)
+
+        mask = np.isfinite(yaw_rate) & (
+            np.abs(yaw_rate) >= float(yaw_rate_threshold_dps)
+        )
+
+        payload = _rows(
+            ["t", "yawDeg", "yawRateDegPerS"],
+            [yaw_v.astype(float).tolist(), yaw_rate.astype(float).tolist()],
+            mask.astype(bool).tolist(),
+        )
+        return {
+            "tripId": trip.id,
+            "kind": "harsh_turns",
+            "offsetSeconds": trip.offset_seconds,
+            **payload,
+        }
+
+    raise HTTPException(status_code=400, detail=f"Unknown evidence kind: {kind}")
 
 
 @app.get("/api/icm")

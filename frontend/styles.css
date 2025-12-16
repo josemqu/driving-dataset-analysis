@@ -598,10 +598,28 @@ button:hover {
 .icmMain {
   flex: 1;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px 8px 1fr;
   gap: 10px;
   padding: 10px;
   overflow: hidden;
+}
+
+.icmSplitter {
+  width: 8px;
+  cursor: col-resize;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.icmSplitter:hover {
+  background: rgba(110, 168, 254, 0.18);
+  border-color: rgba(110, 168, 254, 0.35);
+}
+
+.icmSplitter:focus-visible {
+  outline: 2px solid rgba(110, 168, 254, 0.95);
+  outline-offset: 3px;
 }
 
 .icmSidebar,
@@ -679,6 +697,38 @@ button:hover {
   flex-wrap: wrap;
   justify-content: flex-end;
   opacity: 0.95;
+}
+
+.icmDrillCell {
+  cursor: pointer;
+}
+
+.icmDrillCell:hover {
+  background: rgba(110, 168, 254, 0.08);
+}
+
+.icmEvidence {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.icmEvidenceHeader {
+  padding: 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.icmEvidenceWrap {
+  padding: 0 10px 10px 10px;
+  overflow: auto;
+  max-height: 360px;
+}
+
+.icmEvidenceEvent {
+  background: rgba(255, 86, 120, 0.12);
 }
 
 .tablesBack {

@@ -6,12 +6,105 @@ const els = {
   wrap: document.getElementById("icmWrap"),
   driverList: document.getElementById("icmDriverList"),
   detailHeader: document.getElementById("icmDetailHeader"),
+  evidence: document.getElementById("icmEvidence"),
+  evidenceHeader: document.getElementById("icmEvidenceHeader"),
+  evidenceWrap: document.getElementById("icmEvidenceWrap"),
+  main: document.getElementById("icmMain"),
+  splitter: document.getElementById("icmSplitter"),
 };
 
 let state = {
   drivers: [],
   selectedDriverId: "",
+  selectedEvidence: null,
 };
+
+const ICM_SIDEBAR_WIDTH_KEY = "uah_icm_sidebar_width_px_v1";
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function applySidebarWidthPx(px) {
+  const main = els.main;
+  if (!main) return;
+  const w = clamp(Math.floor(safeNumber(px, 320)), 220, 700);
+  main.style.gridTemplateColumns = `${w}px 8px 1fr`;
+  try {
+    window.localStorage.setItem(ICM_SIDEBAR_WIDTH_KEY, String(w));
+  } catch {
+    // ignore
+  }
+}
+
+function restoreSidebarWidth() {
+  try {
+    const raw = window.localStorage.getItem(ICM_SIDEBAR_WIDTH_KEY);
+    if (!raw) return;
+    const w = safeNumber(raw, null);
+    if (w == null) return;
+    applySidebarWidthPx(w);
+  } catch {
+    // ignore
+  }
+}
+
+function attachSplitter() {
+  const main = els.main;
+  const splitter = els.splitter;
+  if (!main || !splitter) return;
+
+  let dragging = false;
+
+  const onMove = (clientX) => {
+    const rect = main.getBoundingClientRect();
+    // width from left edge of grid to cursor
+    const w = clientX - rect.left;
+    applySidebarWidthPx(w);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragging) return;
+    onMove(e.clientX);
+  };
+
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    try {
+      splitter.releasePointerCapture?.(activePointerId);
+    } catch {
+      // ignore
+    }
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", stop);
+  };
+
+  let activePointerId = null;
+  splitter.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    activePointerId = e.pointerId;
+    try {
+      splitter.setPointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+    onMove(e.clientX);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stop);
+  });
+
+  splitter.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 30 : 10;
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const computed = window.getComputedStyle(main);
+    const cols = (computed.gridTemplateColumns || "").split(" ");
+    const current = safeNumber(cols[0]?.replace("px", ""), 320);
+    const next = e.key === "ArrowLeft" ? current - step : current + step;
+    applySidebarWidthPx(next);
+  });
+}
 
 function escapeHtml(s) {
   return String(s)
@@ -42,6 +135,77 @@ function renderError(err) {
     )}</code></div>`;
   if (els.driverList) els.driverList.innerHTML = "";
   if (els.detailHeader) els.detailHeader.innerHTML = "";
+  if (els.evidence) els.evidence.hidden = true;
+}
+
+function hideEvidence() {
+  state.selectedEvidence = null;
+  if (els.evidence) els.evidence.hidden = true;
+  if (els.evidenceHeader) els.evidenceHeader.innerHTML = "";
+  if (els.evidenceWrap) els.evidenceWrap.innerHTML = "";
+}
+
+function evidenceKindFromColumnIndex(colIndex) {
+  // Trip table columns indexes:
+  // 0 Trip
+  // 1 Trip ICM
+  // 2 Trip km
+  // 3 Duration (min)
+  // 4 Speeding (min)
+  // 5 Harsh accel
+  // 6 Harsh brake
+  // 7 Harsh turns
+  if (colIndex === 4) return "speeding";
+  if (colIndex === 5) return "harsh_accel";
+  if (colIndex === 6) return "harsh_brake";
+  if (colIndex === 7) return "harsh_turns";
+  return null;
+}
+
+function evidenceTitle(kind) {
+  if (kind === "speeding") return "Speeding evidence";
+  if (kind === "harsh_accel") return "Harsh accel evidence";
+  if (kind === "harsh_brake") return "Harsh brake evidence";
+  if (kind === "harsh_turns") return "Harsh turns evidence";
+  return "Evidence";
+}
+
+async function loadEvidence(tripId, kind) {
+  const url = `/api/trips/${encodeURIComponent(
+    tripId
+  )}/evidence?kind=${encodeURIComponent(kind)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || "Failed to load evidence");
+  }
+  return await res.json();
+}
+
+function renderEvidenceTable(columns, rows) {
+  const cols = Array.isArray(columns) ? columns : [];
+  const rws = Array.isArray(rows) ? rows : [];
+
+  const thead = `<thead><tr>${cols
+    .map((c) => `<th><code>${escapeHtml(c)}</code></th>`)
+    .join("")}</tr></thead>`;
+
+  const tbody = `<tbody>${rws
+    .map((row) => {
+      const cells = Array.isArray(row) ? row : [];
+      const isEvent = Boolean(cells[cells.length - 1]);
+      return `<tr class="${isEvent ? "icmEvidenceEvent" : ""}">${cols
+        .map((_, i) => {
+          const v = cells[i];
+          const n = Number(v);
+          const s = Number.isFinite(n) ? n.toFixed(6) : String(v ?? "");
+          return `<td><code>${escapeHtml(s)}</code></td>`;
+        })
+        .join("")}</tr>`;
+    })
+    .join("")}</tbody>`;
+
+  return `<table class="dataTable">${thead}${tbody}</table>`;
 }
 
 function tripLabelFromTripId(tripId) {
@@ -176,6 +340,7 @@ function renderDriverDetail(drivers, driverId) {
   if (!els.wrap) return;
   if (!driver) {
     els.wrap.innerHTML = "";
+    hideEvidence();
     return;
   }
 
@@ -199,6 +364,7 @@ function renderDriverDetail(drivers, driverId) {
 
   const tbody = `<tbody>${trips
     .map((t) => {
+      const tripId = String(t.tripId ?? "");
       const cells = [
         tripLabelFromTripId(t.tripId),
         fmt(t.icm, 2),
@@ -209,13 +375,61 @@ function renderDriverDetail(drivers, driverId) {
         String(t.harshBrakeEvents ?? ""),
         String(t.harshTurnEvents ?? ""),
       ];
-      return `<tr>${cells
-        .map((v) => `<td><code>${escapeHtml(v ?? "")}</code></td>`)
+      return `<tr data-trip-id="${escapeHtml(tripId)}">${cells
+        .map((v, i) => {
+          const kind = evidenceKindFromColumnIndex(i);
+          const cls = kind ? "icmDrillCell" : "";
+          const title = kind ? "Click to view evidence" : "";
+          return `<td class="${cls}" data-ev-kind="${escapeHtml(
+            kind || ""
+          )}" title="${escapeHtml(title)}"><code>${escapeHtml(
+            v ?? ""
+          )}</code></td>`;
+        })
         .join("")}</tr>`;
     })
     .join("")}</tbody>`;
 
   els.wrap.innerHTML = `<table class="dataTable">${thead}${tbody}</table>`;
+
+  // Wire up drilldown clicks
+  els.wrap.querySelectorAll("td.icmDrillCell").forEach((cell) => {
+    cell.addEventListener("click", async () => {
+      const tr = cell.closest("tr");
+      const tripId = tr?.dataset?.tripId || "";
+      const kind = cell.dataset.evKind || "";
+      if (!tripId || !kind) return;
+
+      state.selectedEvidence = { tripId, kind };
+
+      if (els.evidence) els.evidence.hidden = false;
+      if (els.evidenceHeader) {
+        els.evidenceHeader.innerHTML = `
+          <div class="icmEvidenceTitle"><code>${escapeHtml(
+            evidenceTitle(kind)
+          )}</code></div>
+          <div class="icmEvidenceMeta"><code>${escapeHtml(
+            tripLabelFromTripId(tripId)
+          )}</code></div>
+        `;
+      }
+      if (els.evidenceWrap)
+        els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>Loading...</code></div>`;
+
+      try {
+        const json = await loadEvidence(tripId, kind);
+        const columns = json.columns || [];
+        const rows = json.rows || [];
+        if (els.evidenceWrap)
+          els.evidenceWrap.innerHTML = renderEvidenceTable(columns, rows);
+      } catch (e) {
+        if (els.evidenceWrap)
+          els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>${escapeHtml(
+            e instanceof Error ? e.message : String(e)
+          )}</code></div>`;
+      }
+    });
+  });
 }
 
 async function loadIcm() {
@@ -236,9 +450,12 @@ async function loadIcm() {
   state.selectedDriverId = String(preferred || "");
   renderDriversList(state.drivers);
   renderDriverDetail(state.drivers, state.selectedDriverId);
+  hideEvidence();
 }
 
 async function main() {
+  restoreSidebarWidth();
+  attachSplitter();
   try {
     await loadIcm();
   } catch (e) {
