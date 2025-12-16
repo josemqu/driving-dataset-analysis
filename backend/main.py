@@ -200,12 +200,13 @@ def get_trip_events(
 def get_trip_evidence(
     trip_id: str,
     kind: str = Query(..., min_length=1),
+    only_events: bool = Query(default=False),
     speed_margin_kmh: float = Query(default=5.0, ge=0.0, le=50.0),
     accel_threshold_g: float = Query(default=0.25, ge=0.0, le=5.0),
     brake_threshold_g: float = Query(default=0.35, ge=0.0, le=5.0),
     yaw_rate_threshold_dps: float = Query(default=18.0, ge=0.0, le=500.0),
     default_speed_limit_kmh: float = Query(default=120.0, ge=10.0, le=200.0),
-    max_rows: int = Query(default=2500, ge=100, le=20000),
+    max_rows: int = Query(default=0, ge=0, le=200000),
 ) -> dict:
     idx = trip_index()
     trip = idx.by_id.get(trip_id)
@@ -215,9 +216,21 @@ def get_trip_evidence(
     k = kind.strip().lower()
 
     def _clip(arr: np.ndarray) -> np.ndarray:
+        if max_rows == 0:
+            return arr
         if arr.shape[0] <= max_rows:
             return arr
         return arr[:max_rows]
+
+    def _maybe_filter(
+        t_: np.ndarray, data_cols: list[np.ndarray], mask: np.ndarray
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray]:
+        if not only_events:
+            return t_, data_cols, mask
+        idx = np.where(mask.astype(bool))[0]
+        if idx.size == 0:
+            return t_[:0], [c[:0] for c in data_cols], mask[:0]
+        return t_[idx], [c[idx] for c in data_cols], mask[idx]
 
     def _rows(
         t_: np.ndarray,
@@ -225,9 +238,17 @@ def get_trip_evidence(
         data_cols: list[np.ndarray],
         mask: np.ndarray,
     ) -> dict:
-        t_ = _clip(np.asarray(t_, dtype=float))
-        data_cols = [_clip(np.asarray(c, dtype=float)) for c in data_cols]
-        mask = _clip(np.asarray(mask, dtype=bool))
+        t_ = np.asarray(t_, dtype=float)
+        data_cols = [np.asarray(c, dtype=float) for c in data_cols]
+        mask = np.asarray(mask, dtype=bool)
+
+        # Filter first (so events are not lost by clipping the beginning)
+        t_, data_cols, mask = _maybe_filter(t_, data_cols, mask)
+
+        t_ = _clip(t_)
+        data_cols = [_clip(c) for c in data_cols]
+        mask = _clip(mask)
+
         n = int(min([t_.shape[0], mask.shape[0], *[c.shape[0] for c in data_cols]]))
 
         rows = []
@@ -284,6 +305,14 @@ def get_trip_evidence(
             "tripId": trip.id,
             "kind": "speeding",
             "offsetSeconds": trip.offset_seconds,
+            "stats": {
+                "totalSamples": int(mask.shape[0]),
+                "eventSamples": int(np.sum(mask.astype(int))),
+                "onlyEvents": bool(only_events),
+                "maxRows": int(max_rows),
+                "speedMarginKmh": float(speed_margin_kmh),
+                "maxSpeedKmh": float(np.nanmax(speed)) if speed.size else 0.0,
+            },
             **payload,
         }
 
@@ -310,6 +339,16 @@ def get_trip_evidence(
             "tripId": trip.id,
             "kind": k,
             "offsetSeconds": trip.offset_seconds,
+            "stats": {
+                "totalSamples": int(mask.shape[0]),
+                "eventSamples": int(np.sum(mask.astype(int))),
+                "onlyEvents": bool(only_events),
+                "maxRows": int(max_rows),
+                "thresholdG": float(
+                    accel_threshold_g if k == "harsh_accel" else brake_threshold_g
+                ),
+                "maxAbsAxG": float(np.nanmax(np.abs(ax_v))) if ax_v.size else 0.0,
+            },
             **payload,
         }
 
@@ -345,6 +384,16 @@ def get_trip_evidence(
             "tripId": trip.id,
             "kind": "harsh_turns",
             "offsetSeconds": trip.offset_seconds,
+            "stats": {
+                "totalSamples": int(mask.shape[0]),
+                "eventSamples": int(np.sum(mask.astype(int))),
+                "onlyEvents": bool(only_events),
+                "maxRows": int(max_rows),
+                "thresholdDegPerS": float(yaw_rate_threshold_dps),
+                "maxAbsYawRateDegPerS": (
+                    float(np.nanmax(np.abs(yaw_rate))) if yaw_rate.size else 0.0
+                ),
+            },
             **payload,
         }
 

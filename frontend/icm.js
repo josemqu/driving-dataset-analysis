@@ -20,6 +20,7 @@ let state = {
   selectedDriverId: "",
   selectedEvidence: null,
   evidenceData: null,
+  evidenceStats: null,
   evidenceOnlyEvents: false,
 };
 
@@ -187,6 +188,7 @@ function renderError(err) {
 function hideEvidence() {
   state.selectedEvidence = null;
   state.evidenceData = null;
+  state.evidenceStats = null;
   state.evidenceOnlyEvents = false;
   hideEvidenceUi();
   if (els.evidenceHeader) els.evidenceHeader.innerHTML = "";
@@ -275,10 +277,12 @@ function evidenceTitle(kind) {
   return "Evidence";
 }
 
-async function loadEvidence(tripId, kind) {
+async function loadEvidence(tripId, kind, onlyEvents) {
   const url = `/api/trips/${encodeURIComponent(
     tripId
-  )}/evidence?kind=${encodeURIComponent(kind)}`;
+  )}/evidence?kind=${encodeURIComponent(kind)}&only_events=${encodeURIComponent(
+    onlyEvents ? "true" : "false"
+  )}&max_rows=0`;
   const res = await fetch(url);
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
@@ -336,6 +340,14 @@ function renderEvidenceHeader(kind, tripId) {
   if (!els.evidenceHeader) return;
 
   const checked = state.evidenceOnlyEvents ? "checked" : "";
+  const st = state.evidenceStats;
+  const statsText = st
+    ? `samples=${escapeHtml(
+        String(st.totalSamples ?? "")
+      )} · events=${escapeHtml(
+        String(st.eventSamples ?? "")
+      )} · all rows loaded`
+    : "";
   els.evidenceHeader.innerHTML = `
     <div class="icmEvidenceHeaderLeft">
       <div class="icmEvidenceTitle"><code>${escapeHtml(
@@ -343,7 +355,9 @@ function renderEvidenceHeader(kind, tripId) {
       )}</code></div>
       <div class="icmEvidenceMeta"><code>${escapeHtml(
         tripLabelFromTripId(tripId)
-      )}</code></div>
+      )}</code>${
+    statsText ? ` <code style="opacity:0.8">${statsText}</code>` : ""
+  }</div>
     </div>
     <div class="icmEvidenceHeaderRight">
       <label class="icmEvidenceToggle">
@@ -355,8 +369,31 @@ function renderEvidenceHeader(kind, tripId) {
 
   const cb = document.getElementById("icmEvidenceOnlyEvents");
   if (cb) {
-    cb.addEventListener("change", () => {
+    cb.addEventListener("change", async () => {
       state.evidenceOnlyEvents = Boolean(cb.checked);
+
+      // If user requests only events, re-fetch from backend with server-side filtering
+      // so we don't lose events due to max_rows clipping.
+      if (state.evidenceOnlyEvents && state.selectedEvidence) {
+        const { tripId: tid, kind: k } = state.selectedEvidence;
+        if (els.evidenceWrap)
+          els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>Loading...</code></div>`;
+        try {
+          const json = await loadEvidence(tid, k, true);
+          state.evidenceData = {
+            columns: json.columns || [],
+            rows: json.rows || [],
+          };
+          state.evidenceStats = json.stats || null;
+          renderEvidenceHeader(k, tid);
+          renderEvidenceFromState();
+          return;
+        } catch (e) {
+          // fall back to client-side filtering
+          state.evidenceStats = null;
+        }
+      }
+
       renderEvidenceFromState();
     });
   }
@@ -562,14 +599,17 @@ function renderDriverDetail(drivers, driverId) {
         els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>Loading...</code></div>`;
 
       try {
-        const json = await loadEvidence(tripId, kind);
+        const json = await loadEvidence(tripId, kind, false);
         state.evidenceData = {
           columns: json.columns || [],
           rows: json.rows || [],
         };
+        state.evidenceStats = json.stats || null;
+        renderEvidenceHeader(kind, tripId);
         renderEvidenceFromState();
       } catch (e) {
         state.evidenceData = null;
+        state.evidenceStats = null;
         if (els.evidenceWrap)
           els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>${escapeHtml(
             e instanceof Error ? e.message : String(e)
