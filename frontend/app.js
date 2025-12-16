@@ -372,6 +372,59 @@ function updateVideoTripOverlay() {
   els.videoTripOverlay.textContent = `${driver} · ${tripLabel}`;
 }
 
+function speedingEvidenceToRangeEvents(json, offsetSeconds) {
+  const rows = Array.isArray(json?.rows) ? json.rows : [];
+  if (rows.length < 2) return [];
+
+  const off = Number(offsetSeconds) || 0;
+
+  let start = null;
+  let end = null;
+  const out = [];
+
+  for (let i = 0; i < rows.length - 1; i++) {
+    const r0 = Array.isArray(rows[i]) ? rows[i] : [];
+    const r1 = Array.isArray(rows[i + 1]) ? rows[i + 1] : [];
+    const t0 = Number(r0[0]);
+    const t1 = Number(r1[0]);
+    const isEvent = Boolean(r0[r0.length - 1]);
+    if (!Number.isFinite(t0) || !Number.isFinite(t1)) continue;
+    if (t1 <= t0) continue;
+
+    if (!isEvent) {
+      if (start != null && end != null && end > start) {
+        out.push({
+          t: start + off,
+          durationSeconds: end - start,
+          label: "Speeding",
+          source: "SPEEDING_RANGE",
+        });
+      }
+      start = null;
+      end = null;
+      continue;
+    }
+
+    if (start == null) {
+      start = t0;
+      end = t1;
+    } else {
+      end = t1;
+    }
+  }
+
+  if (start != null && end != null && end > start) {
+    out.push({
+      t: start + off,
+      durationSeconds: end - start,
+      label: "Speeding",
+      source: "SPEEDING_RANGE",
+    });
+  }
+
+  return out;
+}
+
 function setSidebarCollapsed(collapsed) {
   const main = document.querySelector?.("main.main");
   if (!main) return;
@@ -1369,13 +1422,21 @@ const eventsOverlayPlugin = {
     for (const e of events) {
       const t = Number(e?.t);
       if (!Number.isFinite(t)) continue;
-      if (t < xMin || t > xMax) continue;
 
       const dur = Number(e?.durationSeconds);
       if (!Number.isFinite(dur) || dur <= 0) continue;
 
-      const x1 = xScale.getPixelForValue(t);
-      const x2 = xScale.getPixelForValue(t + dur);
+      const start = t;
+      const end = t + dur;
+      // Draw ranges that intersect the visible window.
+      if (end < xMin || start > xMax) continue;
+
+      const startClamped = Math.max(xMin, start);
+      const endClamped = Math.min(xMax, end);
+      if (endClamped <= startClamped) continue;
+
+      const x1 = xScale.getPixelForValue(startClamped);
+      const x2 = xScale.getPixelForValue(endClamped);
       if (!Number.isFinite(x1) || !Number.isFinite(x2)) continue;
 
       const left = Math.max(ca.left, Math.min(x1, x2));
@@ -2089,6 +2150,25 @@ async function loadTripData() {
     }
   } catch {
     state.events = [];
+  }
+
+  try {
+    const speedingUrl = `/api/trips/${encodeURIComponent(
+      tripId
+    )}/evidence?kind=${encodeURIComponent(
+      "speeding"
+    )}&only_events=${encodeURIComponent("false")}&max_rows=0`;
+    const speedingRes = await fetch(speedingUrl);
+    if (speedingRes.ok) {
+      const speedingJson = await speedingRes.json();
+      const ranges = speedingEvidenceToRangeEvents(speedingJson, offsetSeconds);
+      if (ranges.length) {
+        state.events = state.events.concat(ranges);
+        state.events.sort((a, b) => Number(a?.t || 0) - Number(b?.t || 0));
+      }
+    }
+  } catch {
+    // ignore
   }
 
   for (const p of state.panels) {
