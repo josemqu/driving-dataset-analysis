@@ -14,6 +14,7 @@ from .trips import (
     TripIndex,
     build_trip_index,
     get_accelerometers,
+    get_available_series_files,
     get_events,
     get_gps_track,
     get_series,
@@ -110,6 +111,19 @@ def get_trip_series(
         "offsetSeconds": trip.offset_seconds,
         "t": data.t.tolist(),
         "v": data.v.tolist(),
+    }
+
+
+@app.get("/api/trips/{trip_id}/series_files")
+def get_trip_series_files(trip_id: str) -> dict:
+    idx = trip_index()
+    trip = idx.by_id.get(trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    return {
+        "tripId": trip.id,
+        "files": get_available_series_files(trip),
     }
 
 

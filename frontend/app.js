@@ -1983,6 +1983,21 @@ async function loadTripData() {
   // Therefore: t_video = t_data + offsetSeconds
   const offsetSeconds = Number(trip.offsetSeconds) || 0;
 
+  // Determine which per-trip series files exist to avoid noisy network errors
+  // when optional files (e.g. PROC_OPENSTREETMAP_DATA) are missing.
+  state.availableSeriesFiles = null;
+  try {
+    const filesUrl = `/api/trips/${encodeURIComponent(tripId)}/series_files`;
+    const filesRes = await fetch(filesUrl);
+    if (filesRes.ok) {
+      const filesJson = await filesRes.json();
+      const files = Array.isArray(filesJson?.files) ? filesJson.files : [];
+      state.availableSeriesFiles = new Set(files.map((s) => String(s)));
+    }
+  } catch {
+    state.availableSeriesFiles = null;
+  }
+
   // Load each panel data
   for (const p of state.panels) {
     if (p.spec.kind === "computed") {
@@ -2047,6 +2062,11 @@ async function loadTripData() {
         if (n > vmax) vmax = n;
       }
       p.vMaxGlobal = vmax;
+
+      // Track OSM speed limit max (if available) so we can scale the chart to
+      // include both the real speed and the permitted speed.
+      p.vMaxLimitGlobal = undefined;
+
       // Keep odometer scale aligned with trip max.
       if (p.chart?.options?.plugins?.odometerOverlay) {
         p.chart.options.plugins.odometerOverlay.max = Math.max(
@@ -2057,7 +2077,20 @@ async function loadTripData() {
 
       // Overlay max speed (OSM) as a red line if available.
       // PROC_OPENSTREETMAP_DATA col=1 is "Current road maxspeed".
+      const canLoadMaxSpeed =
+        state.availableSeriesFiles == null ||
+        state.availableSeriesFiles.has("PROC_OPENSTREETMAP_DATA");
+
       try {
+        if (!canLoadMaxSpeed) {
+          if (p.chart?.data?.datasets?.[2]) {
+            p.chart.data.datasets[2].hidden = true;
+            p.chart.data.datasets[2].data = [];
+          }
+          throw new Error(
+            "PROC_OPENSTREETMAP_DATA not available for this trip"
+          );
+        }
         const limitUrl = `/api/trips/${encodeURIComponent(
           tripId
         )}/series?file=${encodeURIComponent(
@@ -2068,7 +2101,12 @@ async function loadTripData() {
         const limitRes = await fetch(limitUrl);
         if (limitRes.ok) {
           const limitJson = await limitRes.json();
-          const t2 = Array.isArray(limitJson.t) ? limitJson.t : [];
+          const t2 = Array.isArray(limitJson.t)
+            ? limitJson.t.map((tt) => {
+                const n = Number(tt);
+                return Number.isFinite(n) ? n + offsetSeconds : n;
+              })
+            : [];
           const v2 = Array.isArray(limitJson.v) ? limitJson.v : [];
 
           if (
@@ -2093,6 +2131,14 @@ async function loadTripData() {
             // If we never found a finite value, hide the overlay.
             const hasAny = maxSeries.some((pt) => Number.isFinite(pt.y));
             if (hasAny) {
+              let vmaxLimit = 0;
+              for (const pt of maxSeries) {
+                const n = Number(pt?.y);
+                if (!Number.isFinite(n)) continue;
+                if (n > vmaxLimit) vmaxLimit = n;
+              }
+              p.vMaxLimitGlobal = vmaxLimit;
+
               p.chart.data.datasets[2].hidden = false;
               p.chart.data.datasets[2].label = "Max speed";
               p.chart.data.datasets[2].borderColor = "#ef4444";
@@ -2102,18 +2148,22 @@ async function loadTripData() {
               p.chart.data.datasets[2].tension = 0;
               p.chart.data.datasets[2].data = maxSeries;
             } else {
+              p.vMaxLimitGlobal = undefined;
               p.chart.data.datasets[2].hidden = true;
               p.chart.data.datasets[2].data = [];
             }
           } else if (p.chart?.data?.datasets?.[2]) {
+            p.vMaxLimitGlobal = undefined;
             p.chart.data.datasets[2].hidden = true;
             p.chart.data.datasets[2].data = [];
           }
         } else if (p.chart?.data?.datasets?.[2]) {
+          p.vMaxLimitGlobal = undefined;
           p.chart.data.datasets[2].hidden = true;
           p.chart.data.datasets[2].data = [];
         }
       } catch {
+        p.vMaxLimitGlobal = undefined;
         if (p.chart?.data?.datasets?.[2]) {
           p.chart.data.datasets[2].hidden = true;
           p.chart.data.datasets[2].data = [];
@@ -2276,11 +2326,16 @@ function updateCursor() {
           : 160;
       }
 
-      // Fixed Y scale: 0 .. max speed of the trip
+      // Fixed Y scale based on global max among real speed and permitted speed.
       const vmax = Number(p.vMaxGlobal);
-      const yMax = Number.isFinite(vmax) ? Math.max(1, Math.ceil(vmax)) : 160;
+      const vmaxLimit = Number(p.vMaxLimitGlobal);
+      const ymaxBase = Math.max(
+        1,
+        Number.isFinite(vmax) ? Math.ceil(vmax) : 0,
+        Number.isFinite(vmaxLimit) ? Math.ceil(vmaxLimit) : 0
+      );
       p.chart.options.scales.y.min = 0;
-      p.chart.options.scales.y.max = yMax;
+      p.chart.options.scales.y.max = ymaxBase > 0 ? ymaxBase : 160;
       // Disable window-based auto-scaling for this plot.
       p.yMinSmooth = undefined;
       p.yMaxSmooth = undefined;

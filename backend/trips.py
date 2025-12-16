@@ -158,6 +158,15 @@ _ALLOWED_SERIES_FILES: set[str] = {
 }
 
 
+def get_available_series_files(trip: Trip) -> list[str]:
+    out: list[str] = []
+    for stem in sorted(_ALLOWED_SERIES_FILES):
+        p = trip.folder_path / f"{stem}.txt"
+        if p.exists() and p.is_file():
+            out.append(stem)
+    return out
+
+
 _TABLE_COLUMN_NAMES: dict[str, list[str]] = {
     "RAW_ACCELEROMETERS": [
         "Activation bool (1 if speed>50Km/h)",
@@ -367,14 +376,22 @@ def get_series(trip: Trip, file_stem: str, col: int, downsample: int = 1) -> Ser
     if not path.exists():
         raise FileNotFoundError(f"Series file not found: {path}")
 
-    data = np.loadtxt(str(path), dtype=float)
-    t = data[:, 0]
-
+    # Some dataset files can contain non-numeric columns (e.g. OSM road type like
+    # 'motorway'). When the caller requests a single numeric series, read only
+    # the required columns (time + target column) to avoid parse failures.
     col0 = col  # file column index, since data[:,0] is time.
-    if col0 >= data.shape[1]:
-        raise ValueError(f"col out of range. file has {data.shape[1]-1} data columns")
+    data = np.genfromtxt(
+        str(path),
+        dtype=float,
+        usecols=(0, col0),
+        invalid_raise=False,
+    )
 
-    v = data[:, col0]
+    if data.ndim != 2 or data.shape[1] != 2:
+        raise ValueError("Failed to parse series file")
+
+    t = data[:, 0]
+    v = data[:, 1]
 
     if downsample > 1:
         t = t[::downsample]
