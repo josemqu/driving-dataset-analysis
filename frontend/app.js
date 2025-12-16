@@ -862,7 +862,7 @@ function renderMetaPanel({ tripId, folderPath, videoPath, offsetSeconds }) {
       </div>
       <div class="metaRule">
         <div class="metaRuleTitle">Sync rule</div>
-        <code>t_data = video.currentTime - offsetSeconds</code>
+        <code>t_plot (video seconds) = t_data + offsetSeconds</code>
       </div>
     </div>
   `;
@@ -1906,8 +1906,12 @@ async function loadTripData() {
   if (!persistedOrder) persistPanelsOrder(defaultSpecs.map((s) => s.key));
   buildPanels(specs);
 
+  // Use a single, authoritative offset for the whole trip.
+  // offsetSeconds = (data_start - video_start)
+  // Therefore: t_video = t_data + offsetSeconds
+  const offsetSeconds = Number(trip.offsetSeconds) || 0;
+
   // Load each panel data
-  let offsetSeconds = 0;
   for (const p of state.panels) {
     if (p.spec.kind === "computed") {
       p.t = [];
@@ -1930,8 +1934,13 @@ async function loadTripData() {
       if (!res.ok)
         throw new Error(`Failed to load accelerometers axis ${p.spec.axis}`);
       const json = await res.json();
-      offsetSeconds = json.offsetSeconds || 0;
-      p.t = json.t || [];
+      const tRaw = json.t || [];
+      p.t = Array.isArray(tRaw)
+        ? tRaw.map((tt) => {
+            const n = Number(tt);
+            return Number.isFinite(n) ? n + offsetSeconds : n;
+          })
+        : [];
       p.v = json.v || [];
       p.vRaw = Array.from(p.v);
     } else {
@@ -1948,8 +1957,13 @@ async function loadTripData() {
           `Failed to load series ${p.spec.file} col ${p.spec.col}`
         );
       const json = await res.json();
-      offsetSeconds = json.offsetSeconds || 0;
-      p.t = json.t || [];
+      const tRaw = json.t || [];
+      p.t = Array.isArray(tRaw)
+        ? tRaw.map((tt) => {
+            const n = Number(tt);
+            return Number.isFinite(n) ? n + offsetSeconds : n;
+          })
+        : [];
       p.v = json.v || [];
     }
 
@@ -2057,7 +2071,16 @@ async function loadTripData() {
     const eventsRes = await fetch(eventsUrl);
     if (eventsRes.ok) {
       const eventsJson = await eventsRes.json();
-      state.events = Array.isArray(eventsJson.events) ? eventsJson.events : [];
+      const raw = Array.isArray(eventsJson.events) ? eventsJson.events : [];
+      state.events = raw
+        .map((e) => {
+          const t = Number(e?.t);
+          return {
+            ...e,
+            t: Number.isFinite(t) ? t + offsetSeconds : e?.t,
+          };
+        })
+        .sort((a, b) => Number(a?.t || 0) - Number(b?.t || 0));
     }
   } catch {
     state.events = [];
@@ -2079,8 +2102,14 @@ async function loadTripData() {
     const gpsRes = await fetch(gpsUrl);
     if (gpsRes.ok) {
       const gpsJson = await gpsRes.json();
+      const tShifted = Array.isArray(gpsJson.t)
+        ? gpsJson.t.map((tt) => {
+            const n = Number(tt);
+            return Number.isFinite(n) ? n + offsetSeconds : n;
+          })
+        : [];
       state.gpsRaw = {
-        t: gpsJson.t || [],
+        t: tShifted,
         lat: gpsJson.lat || [],
         lon: gpsJson.lon || [],
       };
@@ -2131,7 +2160,7 @@ async function loadTripData() {
 
 function updateCursor() {
   const tVideo = els.video.currentTime || 0;
-  const tData = tVideo - state.offsetSeconds;
+  const tData = tVideo;
 
   updateVideoTimeOverlay();
 
@@ -2166,7 +2195,7 @@ function updateCursor() {
       p.yMaxSmooth = undefined;
     }
 
-    // Use exact tData for x so the cursor moves smoothly even if sampling is coarse.
+    // Use exact video-time for x so the cursor moves smoothly even if sampling is coarse.
     p.chart.data.datasets[1].data = [{ x: tData, y }];
     p.chart.options.scales.x.min = tData - w / 2;
     p.chart.options.scales.x.max = tData + w / 2;
