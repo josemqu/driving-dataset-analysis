@@ -31,7 +31,7 @@ function openMainViewerAt(tripId, tDataSeconds) {
   if (!tid) return;
   if (!Number.isFinite(t)) return;
 
-  const leadSeconds = 2;
+  const leadSeconds = 0;
   const url = `/?tripId=${encodeURIComponent(tid)}&tData=${encodeURIComponent(
     t.toFixed(6)
   )}&lead=${encodeURIComponent(String(leadSeconds))}`;
@@ -44,7 +44,7 @@ function openMainViewerAtVideoTime(tripId, videoSeconds) {
   if (!tid) return;
   if (!Number.isFinite(t)) return;
 
-  const leadSeconds = 2;
+  const leadSeconds = 0;
   const url = `/?tripId=${encodeURIComponent(
     tid
   )}&videoTime=${encodeURIComponent(t.toFixed(6))}&lead=${encodeURIComponent(
@@ -318,9 +318,10 @@ async function loadEvidence(tripId, kind, onlyEvents) {
   return await res.json();
 }
 
-function renderEvidenceTable(columns, rows) {
+function renderEvidenceTable(columns, rows, offsetSeconds) {
   const cols = Array.isArray(columns) ? columns : [];
   const rws = Array.isArray(rows) ? rows : [];
+  const off = Number(offsetSeconds) || 0;
 
   const thead = `<thead><tr>${cols
     .map((c) => `<th><code>${escapeHtml(c)}</code></th>`)
@@ -336,12 +337,17 @@ function renderEvidenceTable(columns, rows) {
         .map((_, i) => {
           const v = cells[i];
           const n = Number(v);
-          const s = Number.isFinite(n) ? n.toFixed(6) : String(v ?? "");
           const isTimeCol = i === 0;
+          const nShown = isTimeCol && Number.isFinite(n) ? n + off : n;
+          const s = Number.isFinite(nShown)
+            ? nShown.toFixed(6)
+            : String(v ?? "");
           const cls =
             isTimeCol && Number.isFinite(n) ? "icmEvidenceTimeCell" : "";
           const tAttr =
-            isTimeCol && Number.isFinite(n) ? ` data-t="${escapeHtml(s)}"` : "";
+            isTimeCol && Number.isFinite(nShown)
+              ? ` data-t="${escapeHtml(s)}"`
+              : "";
           const title =
             isTimeCol && Number.isFinite(n)
               ? "Click to open main viewer at this time"
@@ -372,7 +378,11 @@ function renderEvidenceFromState() {
     ? rows.filter((r) => Array.isArray(r) && Boolean(r[r.length - 1]))
     : rows;
 
-  els.evidenceWrap.innerHTML = renderEvidenceTable(columns, filtered);
+  els.evidenceWrap.innerHTML = renderEvidenceTable(
+    columns,
+    filtered,
+    state.evidenceOffsetSeconds
+  );
 
   // Wire up clicks on the time column to open the main viewer at that timestamp.
   // Evidence tables always use the first column as "t".
@@ -381,19 +391,11 @@ function renderEvidenceFromState() {
   els.evidenceWrap.querySelectorAll("td.icmEvidenceTimeCell").forEach((td) => {
     td.addEventListener("click", () => {
       const tRaw = td.getAttribute("data-t");
-      let tData = Number(tRaw);
-      if (!Number.isFinite(tData)) return;
+      const tVideo = Number(tRaw);
+      if (!Number.isFinite(tVideo)) return;
 
-      // Heuristic: if evidence timestamps look like milliseconds, convert to seconds.
-      if (tData > 1e5) tData = tData / 1000.0;
-
-      const off = Number(state.evidenceOffsetSeconds);
-      if (Number.isFinite(off) && off !== 0) {
-        openMainViewerAtVideoTime(tid, tData + off);
-      } else {
-        // Fallback: keep old behavior if offset is unknown.
-        openMainViewerAt(tid, tData);
-      }
+      // data-t is rendered as video time (t_data + offsetSeconds)
+      openMainViewerAtVideoTime(tid, tVideo);
     });
   });
 }
