@@ -1836,12 +1836,79 @@ async function loadTripData() {
           Math.ceil(vmax)
         );
       }
+
+      // Overlay max speed (OSM) as a red line if available.
+      // PROC_OPENSTREETMAP_DATA col=1 is "Current road maxspeed".
+      try {
+        const limitUrl = `/api/trips/${encodeURIComponent(
+          tripId
+        )}/series?file=${encodeURIComponent(
+          "PROC_OPENSTREETMAP_DATA"
+        )}&col=${encodeURIComponent(1)}&downsample=${encodeURIComponent(
+          state.downsample
+        )}`;
+        const limitRes = await fetch(limitUrl);
+        if (limitRes.ok) {
+          const limitJson = await limitRes.json();
+          const t2 = Array.isArray(limitJson.t) ? limitJson.t : [];
+          const v2 = Array.isArray(limitJson.v) ? limitJson.v : [];
+
+          if (
+            p.chart?.data?.datasets?.[2] &&
+            t2.length > 1 &&
+            v2.length === t2.length
+          ) {
+            // Resample maxspeed onto gps_speed timestamps (p.t).
+            // We use last-known maxspeed for each GPS time.
+            let j = 0;
+            let last = null;
+            const maxSeries = p.t.map((tt) => {
+              const tNum = Number(tt);
+              while (j < t2.length && Number(t2[j]) <= tNum) {
+                const vv = Number(v2[j]);
+                if (Number.isFinite(vv)) last = vv;
+                j++;
+              }
+              return { x: tNum, y: last };
+            });
+
+            // If we never found a finite value, hide the overlay.
+            const hasAny = maxSeries.some((pt) => Number.isFinite(pt.y));
+            if (hasAny) {
+              p.chart.data.datasets[2].hidden = false;
+              p.chart.data.datasets[2].label = "Max speed";
+              p.chart.data.datasets[2].borderColor = "#ef4444";
+              p.chart.data.datasets[2].backgroundColor = "rgba(239,68,68,0.10)";
+              p.chart.data.datasets[2].borderWidth = 1.5;
+              p.chart.data.datasets[2].pointRadius = 0;
+              p.chart.data.datasets[2].tension = 0;
+              p.chart.data.datasets[2].data = maxSeries;
+            } else {
+              p.chart.data.datasets[2].hidden = true;
+              p.chart.data.datasets[2].data = [];
+            }
+          } else if (p.chart?.data?.datasets?.[2]) {
+            p.chart.data.datasets[2].hidden = true;
+            p.chart.data.datasets[2].data = [];
+          }
+        } else if (p.chart?.data?.datasets?.[2]) {
+          p.chart.data.datasets[2].hidden = true;
+          p.chart.data.datasets[2].data = [];
+        }
+      } catch {
+        if (p.chart?.data?.datasets?.[2]) {
+          p.chart.data.datasets[2].hidden = true;
+          p.chart.data.datasets[2].data = [];
+        }
+      }
     }
 
     p.chart.data.datasets[0].label = p.spec.title;
     p.chart.data.datasets[0].data = p.t.map((t, i) => ({ x: t, y: p.v[i] }));
     p.chart.data.datasets[1].data = [];
-    if (p.chart.data.datasets[2]) p.chart.data.datasets[2].data = [];
+    // Keep dataset[2] for gps_speed overlay (max speed). Clear it for other panels.
+    if (p.spec.key !== "gps_speed" && p.chart.data.datasets[2])
+      p.chart.data.datasets[2].data = [];
     p.chart.update();
   }
 
