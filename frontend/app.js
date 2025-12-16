@@ -576,6 +576,7 @@ function applyAccelFilterToPanels() {
   const s = accelFilterSettingsFromUi();
   for (const p of state.panels) {
     if (p?.spec?.kind !== "accelerometers") continue;
+    if (p?.spec?.applyAccelFilter === false) continue;
     if (!Array.isArray(p.t) || !Array.isArray(p.v) || p.t.length === 0)
       continue;
 
@@ -1722,6 +1723,9 @@ function defaultPanelSpecs() {
       subtitle: "Acceleration (Gs)",
       kind: "accelerometers",
       axis: "x",
+      applyAccelFilter: true,
+      emphasizeZeroLine: true,
+      symmetricAroundZero: true,
     },
     {
       key: "accel_y",
@@ -1729,6 +1733,9 @@ function defaultPanelSpecs() {
       subtitle: "Acceleration (Gs)",
       kind: "accelerometers",
       axis: "y",
+      applyAccelFilter: true,
+      emphasizeZeroLine: true,
+      symmetricAroundZero: true,
     },
     {
       key: "accel_z",
@@ -1736,6 +1743,39 @@ function defaultPanelSpecs() {
       subtitle: "Acceleration (Gs)",
       kind: "accelerometers",
       axis: "z",
+      applyAccelFilter: true,
+      emphasizeZeroLine: true,
+      symmetricAroundZero: true,
+    },
+    {
+      key: "roll",
+      title: "RAW_ACCELEROMETERS (roll)",
+      subtitle: "Orientation (deg)",
+      kind: "accelerometers",
+      axis: "roll",
+      applyAccelFilter: false,
+      emphasizeZeroLine: false,
+      symmetricAroundZero: false,
+    },
+    {
+      key: "pitch",
+      title: "RAW_ACCELEROMETERS (pitch)",
+      subtitle: "Orientation (deg)",
+      kind: "accelerometers",
+      axis: "pitch",
+      applyAccelFilter: false,
+      emphasizeZeroLine: false,
+      symmetricAroundZero: true,
+    },
+    {
+      key: "yaw",
+      title: "RAW_ACCELEROMETERS (yaw)",
+      subtitle: "Orientation (deg)",
+      kind: "accelerometers",
+      axis: "yaw",
+      applyAccelFilter: false,
+      emphasizeZeroLine: false,
+      symmetricAroundZero: false,
     },
   ];
 
@@ -1795,7 +1835,7 @@ function buildPanels(specs) {
 
     const chart = makeChart(canvas, spec.title);
 
-    if (spec.kind === "accelerometers") {
+    if (spec.kind === "accelerometers" && spec.emphasizeZeroLine !== false) {
       // Emphasize the zero line for accelerometer plots.
       const normal = "rgba(255,255,255,0.06)";
       const zero = "rgba(255,255,255,0.22)";
@@ -2376,7 +2416,10 @@ function updateCursor() {
       let targetMin = mm.min - pad;
       let targetMax = mm.max + pad;
 
-      if (p.spec.kind === "accelerometers") {
+      if (
+        p.spec.kind === "accelerometers" &&
+        p.spec.symmetricAroundZero !== false
+      ) {
         // Symmetric range around 0 makes accel plots easier to compare.
         const maxAbs = Math.max(Math.abs(targetMin), Math.abs(targetMax));
         targetMin = -maxAbs;
