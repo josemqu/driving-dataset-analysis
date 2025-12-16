@@ -595,6 +595,92 @@ button:hover {
   font-weight: 600;
 }
 
+.icmMain {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.icmSidebar,
+.icmDetail {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.icmSidebar {
+  min-width: 260px;
+}
+
+.icmDriverList {
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.icmDriverItem {
+  text-align: left;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(17, 25, 54, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.icmDriverItem:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.icmDriverItem.active {
+  border-color: rgba(110, 168, 254, 0.95);
+  box-shadow: 0 0 0 2px rgba(110, 168, 254, 0.18) inset;
+}
+
+.icmDriverTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.icmDriverName code {
+  font-weight: 700;
+}
+
+.icmDriverBottom {
+  margin-top: 6px;
+  opacity: 0.9;
+}
+
+.icmDetailHeader {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.icmDetailTitle code {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.icmDetailStats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  opacity: 0.95;
+}
+
 .tablesBack {
   color: rgba(230, 232, 239, 0.9);
   text-decoration: none;

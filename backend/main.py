@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .icm import aggregate_driver_scores, compute_trip_icm
 from .trips import (
     AccelAxis,
     TripIndex,
@@ -97,9 +98,9 @@ def get_trip_series(
     try:
         data = get_series(trip, file_stem=file, col=col, downsample=downsample)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return {
         "tripId": trip.id,
@@ -124,7 +125,7 @@ def get_trip_gps(
     try:
         gps = get_gps_track(trip, downsample=downsample)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
     return {
         "tripId": trip.id,
@@ -158,9 +159,9 @@ def get_trip_table(
             limit=limit,
         )
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return {
         "tripId": trip.id,
@@ -191,6 +192,46 @@ def get_trip_events(
         "offsetSeconds": trip.offset_seconds,
         "filePrefix": filePrefix,
         "events": events,
+    }
+
+
+@app.get("/api/icm")
+def get_icm(
+    speed_margin_kmh: float = Query(default=5.0, ge=0.0, le=50.0),
+    accel_threshold_g: float = Query(default=0.25, ge=0.0, le=5.0),
+    brake_threshold_g: float = Query(default=0.35, ge=0.0, le=5.0),
+    yaw_rate_threshold_dps: float = Query(default=18.0, ge=0.0, le=500.0),
+    default_speed_limit_kmh: float = Query(default=120.0, ge=10.0, le=200.0),
+) -> dict:
+    idx = trip_index()
+
+    trip_results = []
+    for trip in idx.trips:
+        try:
+            r = compute_trip_icm(
+                trip,
+                speed_margin_kmh=speed_margin_kmh,
+                accel_threshold_g=accel_threshold_g,
+                brake_threshold_g=brake_threshold_g,
+                yaw_rate_threshold_dps=yaw_rate_threshold_dps,
+                default_speed_limit_kmh=default_speed_limit_kmh,
+            )
+            trip_results.append(r)
+        except FileNotFoundError:
+            # Skip trips missing required data
+            continue
+
+    drivers = aggregate_driver_scores(trip_results)
+    return {
+        "drivers": drivers,
+        "trips": [t.to_dict() for t in trip_results],
+        "params": {
+            "speedMarginKmh": speed_margin_kmh,
+            "accelThresholdG": accel_threshold_g,
+            "brakeThresholdG": brake_threshold_g,
+            "yawRateThresholdDps": yaw_rate_threshold_dps,
+            "defaultSpeedLimitKmh": default_speed_limit_kmh,
+        },
     }
 
 

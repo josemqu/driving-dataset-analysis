@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UAH DriveSet ICM</title>
+    <link rel="stylesheet" href="/styles.css?v=7" />
+  </head>
+  <body>
+    <div class="app tablesApp">
+      <header class="header">
+        <a class="tablesBack" href="/">Back</a>
+        <div class="title">Indice de Conducta de Manejo (ICM)</div>
+        <div class="tablesControls">
+          <label>
+            Driver
+            <input id="icmSearch" type="text" placeholder="Search..." />
+          </label>
+          <label>
+            Sort
+            <select id="icmSort">
+              <option value="icm_desc" selected>ICM (desc)</option>
+              <option value="km_desc">Km (desc)</option>
+              <option value="driver_asc">Driver (asc)</option>
+            </select>
+          </label>
+          <button id="icmReload" type="button">Reload</button>
+        </div>
+      </header>
+
+      <main class="icmMain" id="icmMain">
+        <aside class="icmSidebar">
+          <div class="tableMeta" id="icmMeta"></div>
+          <div class="icmDriverList" id="icmDriverList"></div>
+        </aside>
+        <section class="icmDetail">
+          <div class="icmDetailHeader" id="icmDetailHeader"></div>
+          <div class="tableWrap" id="icmWrap"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/icm.js?v=1"></script>
+  </body>
+</html>
