@@ -31,7 +31,7 @@ function openMainViewerAt(tripId, tDataSeconds) {
   if (!tid) return;
   if (!Number.isFinite(t)) return;
 
-  const leadSeconds = 0;
+  const leadSeconds = 2;
   const url = `/?tripId=${encodeURIComponent(tid)}&tData=${encodeURIComponent(
     t.toFixed(6)
   )}&lead=${encodeURIComponent(String(leadSeconds))}`;
@@ -44,7 +44,7 @@ function openMainViewerAtVideoTime(tripId, videoSeconds) {
   if (!tid) return;
   if (!Number.isFinite(t)) return;
 
-  const leadSeconds = 0;
+  const leadSeconds = 2;
   const url = `/?tripId=${encodeURIComponent(
     tid
   )}&videoTime=${encodeURIComponent(t.toFixed(6))}&lead=${encodeURIComponent(
