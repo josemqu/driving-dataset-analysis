@@ -10,6 +10,40 @@ let state = {
   events: [],
 };
 
+const SYNC_OVERRIDES_KEY = "syncOverrides";
+
+function defaultSyncOverrideSeconds(tripId) {
+  const tid = String(tripId || "");
+  if (tid.includes("20151111125233-24km-D1-AGGRESSIVE-MOTORWAY")) return 0;
+  return null;
+}
+
+function getSyncOverrideSeconds(tripId) {
+  const tid = String(tripId || "");
+  if (!tid) return null;
+  const persisted = loadPersistedState();
+  const overrides = persisted?.[SYNC_OVERRIDES_KEY];
+  const fromPersisted =
+    overrides && typeof overrides === "object" ? overrides[tid] : undefined;
+  const n = Number(fromPersisted);
+  if (Number.isFinite(n)) return n;
+  return defaultSyncOverrideSeconds(tid);
+}
+
+function setSyncOverrideSeconds(tripId, value) {
+  const tid = String(tripId || "");
+  if (!tid) return;
+  const persisted = loadPersistedState() || {};
+  const current = persisted?.[SYNC_OVERRIDES_KEY];
+  const overrides =
+    current && typeof current === "object" && !Array.isArray(current)
+      ? { ...current }
+      : {};
+  if (value == null) delete overrides[tid];
+  else overrides[tid] = Number(value);
+  savePersistedState({ [SYNC_OVERRIDES_KEY]: overrides });
+}
+
 function parseQuery() {
   try {
     const sp = new URLSearchParams(window.location.search);
@@ -454,6 +488,10 @@ function renderTable(columns, rows, meta) {
   if (!els.tableWrap) return;
   const cols = Array.isArray(columns) ? columns : [];
   const rws = Array.isArray(rows) ? rows : [];
+  const timeShiftSeconds = Number(meta?.offsetSeconds) || 0;
+  const hasTimeCol = cols.length > 0 && String(cols[0]) === "t";
+  const addVideoTimeCol =
+    hasTimeCol && Number.isFinite(timeShiftSeconds) && timeShiftSeconds !== 0;
 
   if (els.tableMeta) {
     const parts = [];
@@ -466,15 +504,36 @@ function renderTable(columns, rows, meta) {
     els.tableMeta.textContent = parts.join(" · ");
   }
 
-  const thead = `<thead><tr>${cols
+  const displayCols = addVideoTimeCol
+    ? [cols[0], "t_video", ...cols.slice(1)]
+    : cols;
+
+  const thead = `<thead><tr>${displayCols
     .map((c) => `<th><code>${escapeHtml(c)}</code></th>`)
     .join("")}</tr></thead>`;
   const tbody = `<tbody>${rws
     .map((row) => {
       const cells = Array.isArray(row) ? row : [];
-      return `<tr>${cols
-        .map((_, i) => {
-          const v = cells[i];
+      if (!addVideoTimeCol) {
+        return `<tr>${cols
+          .map((_, i) => {
+            const v = cells[i];
+            const s = Number.isFinite(v)
+              ? Number(v).toFixed(6)
+              : String(v ?? "");
+            return `<td><code>${escapeHtml(s)}</code></td>`;
+          })
+          .join("")}</tr>`;
+      }
+
+      const tRaw = Number(cells[0]);
+      const tVideo = Number.isFinite(tRaw) ? tRaw + timeShiftSeconds : cells[0];
+      return `<tr>${displayCols
+        .map((c, j) => {
+          let v;
+          if (j === 0) v = cells[0];
+          else if (j === 1) v = tVideo;
+          else v = cells[j - 1];
           const s = Number.isFinite(v) ? Number(v).toFixed(6) : String(v ?? "");
           return `<td><code>${escapeHtml(s)}</code></td>`;
         })
@@ -523,6 +582,7 @@ async function loadTableData() {
     offset: json.offset,
     limit: json.limit,
     total: json.total,
+    offsetSeconds: json.offsetSeconds,
   });
 }
 
@@ -881,6 +941,9 @@ function truncateMiddle(s, maxLen) {
 }
 
 function renderMetaPanel({ tripId, folderPath, videoPath, offsetSeconds }) {
+  const override = getSyncOverrideSeconds(tripId);
+  const effectiveOffsetSeconds =
+    override == null ? offsetSeconds : Number(override) || 0;
   const items = [
     { label: "Trip", value: tripId ?? "" },
     { label: "Folder", value: folderPath ?? "" },
@@ -890,6 +953,12 @@ function renderMetaPanel({ tripId, folderPath, videoPath, offsetSeconds }) {
       value: Number.isFinite(offsetSeconds)
         ? offsetSeconds.toFixed(3)
         : String(offsetSeconds ?? ""),
+    },
+    {
+      label: "EffectiveOffsetSeconds (used for plots)",
+      value: Number.isFinite(effectiveOffsetSeconds)
+        ? effectiveOffsetSeconds.toFixed(3)
+        : String(effectiveOffsetSeconds ?? ""),
     },
   ];
 
@@ -918,8 +987,43 @@ function renderMetaPanel({ tripId, folderPath, videoPath, offsetSeconds }) {
         <div class="metaRuleTitle">Sync rule</div>
         <code>t_plot (video seconds) = t_data + offsetSeconds</code>
       </div>
+      <div class="metaRule">
+        <div class="metaRuleTitle">Sync override (this browser)</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <input id="syncOverrideSeconds" type="number" step="0.01" style="width:140px" value="${escapeHtml(
+            override == null ? "" : String(override)
+          )}" placeholder="(none)" />
+          <button id="syncOverrideApply" type="button">Apply</button>
+          <button id="syncOverrideReset" type="button">Reset</button>
+        </div>
+        <div style="opacity:0.8; margin-top:6px">
+          <code>Set to 0 to make data time match video time</code>
+        </div>
+      </div>
     </div>
   `;
+
+  const applyBtn = document.getElementById("syncOverrideApply");
+  const resetBtn = document.getElementById("syncOverrideReset");
+  const input = document.getElementById("syncOverrideSeconds");
+  if (applyBtn && input) {
+    applyBtn.addEventListener("click", () => {
+      const raw = String(input.value || "").trim();
+      const n = Number(raw);
+      if (raw === "") {
+        setSyncOverrideSeconds(tripId, null);
+      } else if (Number.isFinite(n)) {
+        setSyncOverrideSeconds(tripId, n);
+      }
+      loadTripData().catch((e) => renderMetaError(e));
+    });
+  }
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      setSyncOverrideSeconds(tripId, null);
+      loadTripData().catch((e) => renderMetaError(e));
+    });
+  }
 }
 
 function renderMetaError(err) {
@@ -2021,7 +2125,10 @@ async function loadTripData() {
   // Use a single, authoritative offset for the whole trip.
   // offsetSeconds = (data_start - video_start)
   // Therefore: t_video = t_data + offsetSeconds
-  const offsetSeconds = Number(trip.offsetSeconds) || 0;
+  const offsetSecondsBase = Number(trip.offsetSeconds) || 0;
+  const overrideSeconds = getSyncOverrideSeconds(tripId);
+  const offsetSeconds =
+    overrideSeconds == null ? offsetSecondsBase : Number(overrideSeconds) || 0;
 
   // Determine which per-trip series files exist to avoid noisy network errors
   // when optional files (e.g. PROC_OPENSTREETMAP_DATA) are missing.
@@ -2335,7 +2442,7 @@ async function loadTripData() {
     tripId: trip.id,
     folderPath: trip.folderPath,
     videoPath: trip.videoPath,
-    offsetSeconds: state.offsetSeconds,
+    offsetSeconds: offsetSecondsBase,
   });
 }
 

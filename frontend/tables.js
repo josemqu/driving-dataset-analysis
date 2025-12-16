@@ -83,6 +83,10 @@ function renderTableError(err) {
 function renderTable(columns, rows, meta) {
   const cols = Array.isArray(columns) ? columns : [];
   const rws = Array.isArray(rows) ? rows : [];
+  const timeShiftSeconds = Number(meta?.offsetSeconds) || 0;
+  const hasTimeCol = cols.length > 0 && String(cols[0]) === "t";
+  const addVideoTimeCol =
+    hasTimeCol && Number.isFinite(timeShiftSeconds) && timeShiftSeconds !== 0;
 
   if (els.meta) {
     const parts = [];
@@ -95,15 +99,36 @@ function renderTable(columns, rows, meta) {
     els.meta.textContent = parts.join(" · ");
   }
 
-  const thead = `<thead><tr>${cols
+  const displayCols = addVideoTimeCol
+    ? [cols[0], "t_video", ...cols.slice(1)]
+    : cols;
+
+  const thead = `<thead><tr>${displayCols
     .map((c) => `<th><code>${escapeHtml(c)}</code></th>`)
     .join("")}</tr></thead>`;
   const tbody = `<tbody>${rws
     .map((row) => {
       const cells = Array.isArray(row) ? row : [];
-      return `<tr>${cols
-        .map((_, i) => {
-          const v = cells[i];
+      if (!addVideoTimeCol) {
+        return `<tr>${cols
+          .map((_, i) => {
+            const v = cells[i];
+            const s = Number.isFinite(v)
+              ? Number(v).toFixed(6)
+              : String(v ?? "");
+            return `<td><code>${escapeHtml(s)}</code></td>`;
+          })
+          .join("")}</tr>`;
+      }
+
+      const tRaw = Number(cells[0]);
+      const tVideo = Number.isFinite(tRaw) ? tRaw + timeShiftSeconds : cells[0];
+      return `<tr>${displayCols
+        .map((c, j) => {
+          let v;
+          if (j === 0) v = cells[0];
+          else if (j === 1) v = tVideo;
+          else v = cells[j - 1];
           const s = Number.isFinite(v) ? Number(v).toFixed(6) : String(v ?? "");
           return `<td><code>${escapeHtml(s)}</code></td>`;
         })
@@ -226,6 +251,7 @@ async function loadTable() {
     offset: json.offset,
     limit: json.limit,
     total: json.total,
+    offsetSeconds: json.offsetSeconds,
   });
 }
 
