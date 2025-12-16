@@ -336,6 +336,8 @@ const els = {
   tableWrap: document.getElementById("tableWrap"),
   reloadBtn: document.getElementById("reloadBtn"),
   video: document.getElementById("video"),
+  videoTimeOverlay: document.getElementById("videoTimeOverlay"),
+  videoTripOverlay: document.getElementById("videoTripOverlay"),
   videoOverlayPlay: document.getElementById("videoOverlayPlay"),
   videoOverlay: document.getElementById("videoOverlay"),
   videoWrap: document.getElementById("videoWrap"),
@@ -343,6 +345,32 @@ const els = {
   plots: document.getElementById("plots"),
   map: document.getElementById("map"),
 };
+
+function formatStopwatchSeconds(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s) || s < 0) return "0.000";
+  // Show total seconds with milliseconds (no minutes breakdown)
+  return s.toFixed(3);
+}
+
+function updateVideoTimeOverlay() {
+  if (!els.videoTimeOverlay || !els.video) return;
+  els.videoTimeOverlay.textContent = `${formatStopwatchSeconds(
+    els.video.currentTime || 0
+  )} s`;
+}
+
+function updateVideoTripOverlay() {
+  if (!els.videoTripOverlay) return;
+  const tripId = els.tripSelect?.value || "";
+  if (!tripId) {
+    els.videoTripOverlay.textContent = "";
+    return;
+  }
+  const driver = driverFromTripId(tripId);
+  const tripLabel = tripLabelFromTripId(tripId);
+  els.videoTripOverlay.textContent = `${driver} · ${tripLabel}`;
+}
 
 function setSidebarCollapsed(collapsed) {
   const main = document.querySelector?.("main.main");
@@ -1303,6 +1331,41 @@ const eventsOverlayPlugin = {
     // Ensure ranges are rendered behind the plotted data.
     ctx.globalCompositeOperation = "destination-over";
 
+    const eventTypeFromSource = (source) => {
+      const s = String(source || "").toUpperCase();
+      if (!s) return "other";
+      if (s.includes("LANE") && s.includes("CHANGE")) return "lane_change";
+      if (s.includes("SPEED")) return "speeding";
+      if (s.includes("BRAKE")) return "harsh_brake";
+      if (s.includes("ACCEL")) return "harsh_accel";
+      if (s.includes("TURN") || s.includes("YAW")) return "harsh_turn";
+      return "other";
+    };
+
+    const stylesForEvent = (e) => {
+      const type = eventTypeFromSource(e?.source);
+      if (type === "lane_change") {
+        const dir = Number(e?.direction);
+        const isRight = dir === 1;
+        const isLeft = dir === -1;
+        return {
+          rangeFill: isRight
+            ? "rgba(34, 197, 94, 0.16)"
+            : isLeft
+            ? "rgba(239, 68, 68, 0.16)"
+            : "rgba(251, 191, 36, 0.14)",
+        };
+      }
+      if (type === "speeding") return { rangeFill: "rgba(236, 72, 153, 0.14)" };
+      if (type === "harsh_brake")
+        return { rangeFill: "rgba(239, 68, 68, 0.12)" };
+      if (type === "harsh_accel")
+        return { rangeFill: "rgba(34, 211, 238, 0.12)" };
+      if (type === "harsh_turn")
+        return { rangeFill: "rgba(168, 85, 247, 0.12)" };
+      return { rangeFill: "rgba(148, 163, 184, 0.10)" };
+    };
+
     for (const e of events) {
       const t = Number(e?.t);
       if (!Number.isFinite(t)) continue;
@@ -1310,15 +1373,6 @@ const eventsOverlayPlugin = {
 
       const dur = Number(e?.durationSeconds);
       if (!Number.isFinite(dur) || dur <= 0) continue;
-
-      const dir = Number(e?.direction);
-      const isRight = dir === 1;
-      const isLeft = dir === -1;
-      const rangeFill = isRight
-        ? "rgba(34, 197, 94, 0.16)"
-        : isLeft
-        ? "rgba(239, 68, 68, 0.16)"
-        : "rgba(251, 191, 36, 0.14)";
 
       const x1 = xScale.getPixelForValue(t);
       const x2 = xScale.getPixelForValue(t + dur);
@@ -1329,7 +1383,8 @@ const eventsOverlayPlugin = {
       const w = right - left;
       if (w <= 1) continue;
 
-      ctx.fillStyle = rangeFill;
+      const st = stylesForEvent(e);
+      ctx.fillStyle = st.rangeFill;
       ctx.fillRect(left, ca.top, w, ca.bottom - ca.top);
     }
 
@@ -1377,6 +1432,42 @@ const eventsOverlayPlugin = {
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
 
+    const eventTypeFromSource = (source) => {
+      const s = String(source || "").toUpperCase();
+      if (!s) return "other";
+      if (s.includes("LANE") && s.includes("CHANGE")) return "lane_change";
+      if (s.includes("SPEED")) return "speeding";
+      if (s.includes("BRAKE")) return "harsh_brake";
+      if (s.includes("ACCEL")) return "harsh_accel";
+      if (s.includes("TURN") || s.includes("YAW")) return "harsh_turn";
+      return "other";
+    };
+
+    const stylesForEvent = (e) => {
+      const type = eventTypeFromSource(e?.source);
+      if (type === "lane_change") {
+        const dir = Number(e?.direction);
+        const isRight = dir === 1;
+        const isLeft = dir === -1;
+        return {
+          lineStroke: isRight
+            ? "rgba(34, 197, 94, 0.55)"
+            : isLeft
+            ? "rgba(239, 68, 68, 0.55)"
+            : "rgba(251, 191, 36, 0.55)",
+        };
+      }
+      if (type === "speeding")
+        return { lineStroke: "rgba(236, 72, 153, 0.60)" };
+      if (type === "harsh_brake")
+        return { lineStroke: "rgba(239, 68, 68, 0.60)" };
+      if (type === "harsh_accel")
+        return { lineStroke: "rgba(34, 211, 238, 0.60)" };
+      if (type === "harsh_turn")
+        return { lineStroke: "rgba(168, 85, 247, 0.60)" };
+      return { lineStroke: "rgba(148, 163, 184, 0.55)" };
+    };
+
     for (let i = 0; i < within.length; i += step) {
       const e = within[i];
       const t = Number(e?.t);
@@ -1384,19 +1475,8 @@ const eventsOverlayPlugin = {
       if (!Number.isFinite(x)) continue;
       if (x < ca.left - 1 || x > ca.right + 1) continue;
 
-      const dir = Number(e?.direction);
-      const isRight = dir === 1;
-      const isLeft = dir === -1;
-      const rangeFill = isRight
-        ? "rgba(34, 197, 94, 0.18)"
-        : isLeft
-        ? "rgba(239, 68, 68, 0.18)"
-        : "rgba(251, 191, 36, 0.16)";
-      const lineStroke = isRight
-        ? "rgba(34, 197, 94, 0.55)"
-        : isLeft
-        ? "rgba(239, 68, 68, 0.55)"
-        : "rgba(251, 191, 36, 0.55)";
+      const st = stylesForEvent(e);
+      const lineStroke = st.lineStroke;
 
       ctx.save();
       ctx.strokeStyle = lineStroke;
@@ -1811,6 +1891,8 @@ async function loadTripData() {
   if (!trip) return;
   state.currentTrip = trip;
 
+  updateVideoTripOverlay();
+
   const persisted = loadPersistedState();
   state.downsample = Number(els.downsample.value) || 1;
   state.windowSeconds = Number(els.windowSeconds.value) || 30;
@@ -1971,7 +2053,7 @@ async function loadTripData() {
   try {
     const eventsUrl = `/api/trips/${encodeURIComponent(
       tripId
-    )}/events?filePrefix=${encodeURIComponent("EVENTS_LIST_LANE_CHANGES")}`;
+    )}/events?filePrefix=${encodeURIComponent("")}`;
     const eventsRes = await fetch(eventsUrl);
     if (eventsRes.ok) {
       const eventsJson = await eventsRes.json();
@@ -2050,6 +2132,8 @@ async function loadTripData() {
 function updateCursor() {
   const tVideo = els.video.currentTime || 0;
   const tData = tVideo - state.offsetSeconds;
+
+  updateVideoTimeOverlay();
 
   const w = Math.max(2, state.windowSeconds);
   for (const p of state.panels) {
@@ -2263,16 +2347,26 @@ function attachEvents() {
     els.video.addEventListener("emptied", syncVideoOverlay);
   }
 
+  // Keep time overlay updated even when user interacts with native controls.
+  if (els.video) {
+    els.video.addEventListener("timeupdate", updateVideoTimeOverlay);
+    els.video.addEventListener("seeked", updateVideoTimeOverlay);
+    els.video.addEventListener("loadedmetadata", updateVideoTimeOverlay);
+    els.video.addEventListener("emptied", updateVideoTimeOverlay);
+  }
+
   els.driverSelect.addEventListener("change", () => {
     const driver = els.driverSelect.value;
     savePersistedState({ driver, videoTime: 0 });
     renderTripOptionsForDriver(driver, null);
     savePersistedState({ tripId: els.tripSelect.value, videoTime: 0 });
+    updateVideoTripOverlay();
     loadTripData().catch((e) => renderMetaError(e));
   });
 
   els.tripSelect.addEventListener("change", () => {
     savePersistedState({ tripId: els.tripSelect.value, videoTime: 0 });
+    updateVideoTripOverlay();
     loadTripData().catch((e) => renderMetaError(e));
   });
 
