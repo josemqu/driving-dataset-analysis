@@ -21,6 +21,7 @@ let state = {
   selectedEvidence: null,
   evidenceData: null,
   evidenceStats: null,
+  evidenceOffsetSeconds: 0,
   evidenceOnlyEvents: false,
 };
 
@@ -34,7 +35,22 @@ function openMainViewerAt(tripId, tDataSeconds) {
   const url = `/?tripId=${encodeURIComponent(tid)}&tData=${encodeURIComponent(
     t.toFixed(6)
   )}&lead=${encodeURIComponent(String(leadSeconds))}`;
-  window.open(url, "_blank", "noopener");
+  window.location.assign(url);
+}
+
+function openMainViewerAtVideoTime(tripId, videoSeconds) {
+  const tid = String(tripId || "");
+  const t = Number(videoSeconds);
+  if (!tid) return;
+  if (!Number.isFinite(t)) return;
+
+  const leadSeconds = 2;
+  const url = `/?tripId=${encodeURIComponent(
+    tid
+  )}&videoTime=${encodeURIComponent(t.toFixed(6))}&lead=${encodeURIComponent(
+    String(leadSeconds)
+  )}`;
+  window.location.assign(url);
 }
 
 const ICM_SIDEBAR_WIDTH_KEY = "uah_icm_sidebar_width_px_v1";
@@ -199,6 +215,7 @@ function hideEvidence() {
   state.selectedEvidence = null;
   state.evidenceData = null;
   state.evidenceStats = null;
+  state.evidenceOffsetSeconds = 0;
   state.evidenceOnlyEvents = false;
   hideEvidenceUi();
   if (els.evidenceHeader) els.evidenceHeader.innerHTML = "";
@@ -363,8 +380,20 @@ function renderEvidenceFromState() {
   if (!tid) return;
   els.evidenceWrap.querySelectorAll("td.icmEvidenceTimeCell").forEach((td) => {
     td.addEventListener("click", () => {
-      const t = td.getAttribute("data-t");
-      openMainViewerAt(tid, t);
+      const tRaw = td.getAttribute("data-t");
+      let tData = Number(tRaw);
+      if (!Number.isFinite(tData)) return;
+
+      // Heuristic: if evidence timestamps look like milliseconds, convert to seconds.
+      if (tData > 1e5) tData = tData / 1000.0;
+
+      const off = Number(state.evidenceOffsetSeconds);
+      if (Number.isFinite(off) && off !== 0) {
+        openMainViewerAtVideoTime(tid, tData + off);
+      } else {
+        // Fallback: keep old behavior if offset is unknown.
+        openMainViewerAt(tid, tData);
+      }
     });
   });
 }
@@ -420,12 +449,14 @@ function renderEvidenceHeader(kind, tripId) {
             rows: json.rows || [],
           };
           state.evidenceStats = json.stats || null;
+          state.evidenceOffsetSeconds = Number(json.offsetSeconds) || 0;
           renderEvidenceHeader(k, tid);
           renderEvidenceFromState();
           return;
         } catch (e) {
           // fall back to client-side filtering
           state.evidenceStats = null;
+          state.evidenceOffsetSeconds = 0;
         }
       }
 
@@ -640,11 +671,13 @@ function renderDriverDetail(drivers, driverId) {
           rows: json.rows || [],
         };
         state.evidenceStats = json.stats || null;
+        state.evidenceOffsetSeconds = Number(json.offsetSeconds) || 0;
         renderEvidenceHeader(kind, tripId);
         renderEvidenceFromState();
       } catch (e) {
         state.evidenceData = null;
         state.evidenceStats = null;
+        state.evidenceOffsetSeconds = 0;
         if (els.evidenceWrap)
           els.evidenceWrap.innerHTML = `<div style="padding:10px"><code>${escapeHtml(
             e instanceof Error ? e.message : String(e)
